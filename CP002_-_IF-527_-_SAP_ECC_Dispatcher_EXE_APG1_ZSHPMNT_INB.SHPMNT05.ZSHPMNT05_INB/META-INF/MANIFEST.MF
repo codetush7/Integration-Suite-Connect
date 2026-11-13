@@ -4,7 +4,7 @@ Bundle-Name: CP002 - IF-527 - SAP ECC_Dispatcher_EXE_APG1_ZSHPMNT_INB.SH
  PMNT05.ZSHPMNT05_INB
 Bundle-SymbolicName: CP002_-_IF-527_-_SAP_ECC_Dispatcher_EXE_APG1_ZSHPMN
  T_INB.SHPMNT05.ZSHPMNT05_INB
-Bundle-Version: 1.0.4
+Bundle-Version: 1.0.5
 SAP-BundleType: IntegrationFlow
 SAP-NodeType: IFLMAP
 SAP-RuntimeProfile: iflmap
