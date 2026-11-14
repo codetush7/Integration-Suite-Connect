@@ -596,21 +596,27 @@ pipeline {
 
                                 $artifactName = $displayName
 
-                                Write-Host "STEP 1: Creating request object..."
+                                Write-Host "STEP 1: Preparing JSON fields..."
 
-                                $requestObject = @{
-                                    Name            = $artifactName
-                                    Id              = $id
-                                    PackageId       = $packageId
-                                    ArtifactContent = $artifactContent
+                                $nameJson = ConvertTo-Json -InputObject ([string]$artifactName) -Compress
+                                $idJson = ConvertTo-Json -InputObject ([string]$id) -Compress
+                                $packageJson = ConvertTo-Json -InputObject ([string]$packageId) -Compress
+
+                                Write-Host "STEP 2: JSON fields prepared."
+
+                                if ([string]::IsNullOrWhiteSpace($artifactContent)) {
+                                    throw "ArtifactContent is empty."
                                 }
 
-                                Write-Host "STEP 2: Request object created."
-                                Write-Host "STEP 3: Serializing JSON..."
+                                Write-Host "STEP 3: Constructing JSON request..."
 
-                                $body = ConvertTo-Json -InputObject $requestObject -Depth 10 -Compress
+                                # Base64 contains only JSON-safe characters.
+                                $body = '{"Name":' + $nameJson +
+                                        ',"Id":' + $idJson +
+                                        ',"PackageId":' + $packageJson +
+                                        ',"ArtifactContent":"' + $artifactContent + '"}'
 
-                                Write-Host "STEP 4: JSON serialization completed."
+                                Write-Host "STEP 4: JSON request constructed."
                                 Write-Host "JSON character count: $($body.Length)"
 
                                 Write-Host "STEP 5: Converting JSON to UTF-8..."
