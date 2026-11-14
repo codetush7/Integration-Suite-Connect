@@ -303,31 +303,47 @@ pipeline {
 
                             $artifactUrl = "$api/IntegrationDesigntimeArtifacts(Id='$id',Version='active')"
 
-                            $existing = $null
+							$existing = $null
+							$existingData = $null
 
-                            try {
-                                $existing = Invoke-RestMethod `
-                                    -Uri $artifactUrl `
-                                    -Method GET `
-                                    -Headers $headers `
-                                    -WebSession $session `
-                                    -TimeoutSec 60
+							try {
+								$existing = Invoke-RestMethod `
+									-Uri $artifactUrl `
+									-Method GET `
+									-Headers $headers `
+									-WebSession $session `
+									-TimeoutSec 60
 
-                                Write-Host "Existing QA artifact found."
-                            }
-                            catch {
-                                $status = 0
+								# Support both OData response structures
+								if ($existing.d) {
+									$existingData = $existing.d
+								}
+								else {
+									$existingData = $existing
+								}
 
-                                if ($_.Exception.Response) {
-                                    $status = [int]$_.Exception.Response.StatusCode
-                                }
+								if ([string]::IsNullOrWhiteSpace([string]$existingData.Version)) {
+									throw "QA artifact was found, but its version could not be read."
+								}
 
-                                if ($status -ne 404) {
-                                    throw "Could not check artifact $id. HTTP status: $status"
-                                }
+								Write-Host "Existing QA artifact found."
+								Write-Host "QA artifact version: $($existingData.Version)"
+							}
+							catch {
+								$status = 0
 
-                                Write-Host "Artifact does not exist in QA."
-                            }
+								if ($_.Exception.Response) {
+									$status = [int]$_.Exception.Response.StatusCode
+								}
+
+								if ($status -eq 404) {
+									Write-Host "Artifact does not exist in QA."
+									$existingData = $null
+								}
+								else {
+									throw "Unable to retrieve QA artifact metadata: $($_.Exception.Message)"
+								}
+							}
 
                             # -------------------------------------
                             # 7. Prepare isolated upload project
@@ -359,9 +375,13 @@ pipeline {
 
                                 Write-Host "Downloading existing QA artifact to preserve parameters."
 
-                                $version = $existing.Version
+                               $version = [string]$existingData.Version
 
-                                $downloadUrl = "$api/IntegrationDesigntimeArtifacts(Id='$id',Version='$version')/`$value"
+								Write-Host "Downloading QA artifact version: $version"
+
+								$downloadUrl = "$api/IntegrationDesigntimeArtifacts(Id='$id',Version='$version')/`$value"
+
+								Write-Host "Downloading existing QA artifact..."
 
                                 $qaZip = Join-Path $tempDir "$id-current-qa.zip"
 
@@ -451,7 +471,7 @@ pipeline {
                                 Write-Host "Updating existing QA artifact: $id"
 
                                 $body = @{
-                                    Name = $existing.Name
+                                    Name = $existingData.Name
                                     ArtifactContent = $artifactContent
                                 } | ConvertTo-Json -Depth 10 -Compress
 
