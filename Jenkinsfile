@@ -224,8 +224,34 @@ pipeline {
                                 [string]$DestinationZip
                             )
 
-                            if (Test-Path $DestinationZip) {
-                                Remove-Item $DestinationZip -Force
+                            if (!(Test-Path -LiteralPath $SourceFolder -PathType Container)) {
+                                throw "Source folder does not exist: $SourceFolder"
+                            }
+
+                            if (Test-Path -LiteralPath $DestinationZip) {
+                                Remove-Item -LiteralPath $DestinationZip -Force
+                            }
+
+                            # Resolve a canonical absolute path. Remove only trailing
+                            # directory separators so relative paths start at project root.
+                            $root = [IO.Path]::GetFullPath($SourceFolder).TrimEnd(
+                                [char[]]@([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
+                            )
+
+                            $files = Get-ChildItem `
+                                -LiteralPath $root `
+                                -Recurse `
+                                -File `
+                                -Force
+
+                            if ($files.Count -eq 0) {
+                                throw "No files found in staged iFlow project: $root"
+                            }
+
+                            # Fail before ZIP creation if the mandatory SAP manifest is absent.
+                            $manifestPath = Join-Path $root "META-INF\MANIFEST.MF"
+                            if (!(Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+                                throw "Required project manifest is missing: $manifestPath"
                             }
 
                             $stream = [IO.File]::Create($DestinationZip)
@@ -237,23 +263,30 @@ pipeline {
                                 )
 
                                 try {
-                                    $files = Get-ChildItem `
-                                        -LiteralPath $SourceFolder `
-                                        -Recurse `
-                                        -File `
-                                        -Force
-
                                     foreach ($file in $files) {
-                                        $relative = $file.FullName.Substring(
-                                            $SourceFolder.TrimEnd('\\').Length
+                                        $fullFilePath = [IO.Path]::GetFullPath($file.FullName)
+
+                                        # Relative path is calculated from the project root,
+                                        # never from the temporary parent (for example t/s).
+                                        $relativePath = $fullFilePath.Substring($root.Length)
+                                        $relativePath = $relativePath.TrimStart(
+                                            [char[]]@([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
                                         )
 
-                                        $relative = $relative.TrimStart('\\','/')
-                                        $entryName = $relative.Replace('\\','/')
+                                        # ZIP entry names must use forward slashes.
+                                        $entryName = $relativePath.Replace('\', '/')
+
+                                        if ([string]::IsNullOrWhiteSpace($entryName) -or
+                                            $entryName.StartsWith("/") -or
+                                            $entryName -match '^[A-Za-z]:') {
+                                            throw "Invalid ZIP entry path generated: $entryName"
+                                        }
+
+                                        Write-Host "Adding ZIP entry: $entryName"
 
                                         [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
                                             $archive,
-                                            $file.FullName,
+                                            $fullFilePath,
                                             $entryName,
                                             [System.IO.Compression.CompressionLevel]::Optimal
                                         ) | Out-Null
@@ -267,8 +300,41 @@ pipeline {
                                 $stream.Dispose()
                             }
 
-                            if (!(Test-Path $DestinationZip)) {
-                                throw "Normalized ZIP was not created."
+                            if (!(Test-Path -LiteralPath $DestinationZip -PathType Leaf)) {
+                                throw "Normalized ZIP was not created: $DestinationZip"
+                            }
+
+                            # Re-open and validate the exact archive that will be uploaded.
+                            $validationZip = [System.IO.Compression.ZipFile]::OpenRead($DestinationZip)
+
+                            try {
+                                $manifestEntry = $validationZip.Entries |
+                                    Where-Object { $_.FullName -ceq "META-INF/MANIFEST.MF" }
+
+                                if (!$manifestEntry) {
+                                    throw "Invalid SAP iFlow ZIP: META-INF/MANIFEST.MF is not at the archive root."
+                                }
+
+                                foreach ($entry in $validationZip.Entries) {
+                                    if ($entry.FullName.Contains('\')) {
+                                        throw "Invalid ZIP entry uses a backslash: $($entry.FullName)"
+                                    }
+
+                                    if ($entry.FullName.StartsWith("t/") -or
+                                        $entry.FullName.StartsWith("s/") -or
+                                        $entry.FullName.StartsWith("t/s/")) {
+                                        throw "Unexpected temporary folder prefix in ZIP: $($entry.FullName)"
+                                    }
+                                }
+
+                                Write-Host "ZIP validation successful. Manifest found at archive root."
+                                Write-Host "Validated ZIP entries:"
+                                $validationZip.Entries | ForEach-Object {
+                                    Write-Host "ZIP ENTRY: $($_.FullName)"
+                                }
+                            }
+                            finally {
+                                $validationZip.Dispose()
                             }
 
                             Write-Host "Normalized ZIP created: $DestinationZip"
@@ -371,7 +437,7 @@ pipeline {
                             # 8. Preserve existing QA parameters
                             # -------------------------------------
 
-                            if ($existing) {
+                            if ($existingData) {
 
                                 Write-Host "Downloading existing QA artifact to preserve parameters."
 
@@ -462,7 +528,7 @@ pipeline {
 
                             $artifactContent = [Convert]::ToBase64String($zipBytes)
 
-                            if ($existing) {
+                            if ($existingData) {
 
                                 # ---------------------------------
                                 # 11A. PUT existing artifact
