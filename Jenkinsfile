@@ -1,4 +1,3 @@
-
 pipeline {
     agent any
 
@@ -570,25 +569,23 @@ pipeline {
 
                                 $displayName = [IO.Path]::GetFileNameWithoutExtension($iflowFiles[0].Name)
 
-                                $bodyObject = @{
-                                    Name = $displayName
+                                $iflowName = $displayName
+
+                                $body = @{
+                                    Name = $iflowName
                                     Id = $id
                                     PackageId = $packageId
                                     ArtifactContent = $artifactContent
-                                }
+                                } | ConvertTo-Json -Depth 10 -Compress
 
-                                $body = $bodyObject | ConvertTo-Json -Depth 10 -Compress
-                                $bodyBytes = [Text.Encoding]::UTF8.GetBytes($body)
+                                $bodyBytes = [System.Text.Encoding]::UTF8.GetBytes($body)
 
                                 Write-Host "POST URL: $api/IntegrationDesigntimeArtifacts"
-                                Write-Host "Artifact ID: $id"
-                                Write-Host "Artifact display name: $displayName"
-                                Write-Host "Package ID: $packageId"
-                                Write-Host "ZIP size: $($zipBytes.Length) bytes"
-                                Write-Host "POST JSON size: $($bodyBytes.Length) bytes"
+                                Write-Host "Payload size: $($bodyBytes.Length) bytes"
+                                Write-Host "Sending POST request to SAP..."
 
                                 try {
-                                    $postResponse = Invoke-WebRequest `
+                                    $response = Invoke-WebRequest `
                                         -Uri "$api/IntegrationDesigntimeArtifacts" `
                                         -Method POST `
                                         -Headers $headers `
@@ -596,45 +593,22 @@ pipeline {
                                         -ContentType "application/json; charset=utf-8" `
                                         -Body $bodyBytes `
                                         -UseBasicParsing `
-                                        -TimeoutSec 180 `
-                                        -ErrorAction Stop
+                                        -TimeoutSec 60
 
-                                    $postStatus = [int]$postResponse.StatusCode
-                                    Write-Host "POST HTTP STATUS: $postStatus"
-
-                                    if ($postStatus -lt 200 -or $postStatus -ge 300) {
-                                        throw "SAP POST returned HTTP status $postStatus."
-                                    }
-
-                                    Write-Host "POST completed successfully: $id"
+                                    Write-Host "POST HTTP STATUS: $([int]$response.StatusCode)"
+                                    Write-Host "POST RESPONSE: $($response.Content)"
                                 }
                                 catch {
-                                    Write-Host "POST FAILED for: $id"
-                                    Write-Host "POST ERROR: $($_.Exception.Message)"
+                                    Write-Host "POST REQUEST FAILED"
+                                    Write-Host "ERROR: $($_.Exception.Message)"
 
                                     if ($_.Exception.Response) {
-                                        try {
-                                            $response = $_.Exception.Response
-                                            Write-Host "POST HTTP STATUS: $([int]$response.StatusCode)"
-
-                                            $reader = New-Object System.IO.StreamReader(
-                                                $response.GetResponseStream()
-                                            )
-                                            $errorBody = $reader.ReadToEnd()
-                                            $reader.Dispose()
-
-                                            if (![string]::IsNullOrWhiteSpace($errorBody)) {
-                                                Write-Host "SAP ERROR RESPONSE:"
-                                                Write-Host $errorBody
-                                            }
-                                        }
-                                        catch {
-                                            Write-Host "Could not read the SAP error response body."
-                                        }
+                                        Write-Host "HTTP STATUS: $([int]$_.Exception.Response.StatusCode)"
                                     }
 
                                     throw
                                 }
+
                             }
 
                             # Clear artifact payload from memory.
