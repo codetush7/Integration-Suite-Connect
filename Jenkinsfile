@@ -69,70 +69,79 @@ pipeline {
         }
 
         stage('3. Package iFlows') {
-            steps {
-                powershell '''
-                    $ErrorActionPreference = "Stop"
+			steps {
+				powershell '''
+					$ErrorActionPreference = "Stop"
 
-                    Add-Type -AssemblyName System.IO.Compression
-                    Add-Type -AssemblyName System.IO.Compression.FileSystem
+					Add-Type -AssemblyName System.IO.Compression
+					Add-Type -AssemblyName System.IO.Compression.FileSystem
 
-                    $projects = Get-Content `
-                        "$env:WORKSPACE/discovered-iflows.txt"
+					$projects = Get-Content "$env:WORKSPACE/discovered-iflows.txt"
 
-                    $output = "$env:WORKSPACE/artifacts"
+					$output = "$env:WORKSPACE/artifacts"
 
-                    New-Item -ItemType Directory `
-                        -Force `
-                        -Path $output | Out-Null
+					New-Item -ItemType Directory -Force -Path $output |
+						Out-Null
 
-                    foreach ($name in $projects) {
+					foreach ($name in $projects) {
 
-                        $source = Join-Path $env:WORKSPACE $name
-                        $destination = Join-Path $output "$name.zip"
+						$source = Join-Path $env:WORKSPACE $name
+						$destination = Join-Path $output "$name.zip"
 
-                        if (Test-Path $destination) {
-                            Remove-Item $destination -Force
-                        }
+						if (!(Test-Path $source)) {
+							throw "Project folder not found: $source"
+						}
 
-                        Write-Host "Packaging: $name"
+						if (Test-Path $destination) {
+							Remove-Item $destination -Force
+						}
 
-                        $zip = [System.IO.Compression.ZipFile]::Open(
-                            $destination,
-                            [System.IO.Compression.ZipArchiveMode]::Create
-                        )
+						Write-Host "Packaging: $name"
 
-                        try {
-                            $root = (Resolve-Path $source).Path.TrimEnd('\') + '\'
+						$root = (Resolve-Path $source).Path.TrimEnd([char]92) + [char]92
 
-                            $files = Get-ChildItem `
-                                -Path $source `
-                                -Recurse `
-                                -File `
-                                -Force
+						$zip = [System.IO.Compression.ZipFile]::Open(
+							$destination,
+							[System.IO.Compression.ZipArchiveMode]::Create
+						)
 
-                            foreach ($file in $files) {
+						try {
+							$files = Get-ChildItem `
+								-Path $source `
+								-Recurse `
+								-File `
+								-Force
 
-                                $relativePath = $file.FullName.Substring(
-                                    $root.Length
-                                ).Replace('\', '/')
+							foreach ($file in $files) {
 
-                                [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
-                                    $zip,
-                                    $file.FullName,
-                                    $relativePath,
-                                    [System.IO.Compression.CompressionLevel]::Optimal
-                                ) | Out-Null
-                            }
-                        }
-                        finally {
-                            $zip.Dispose()
-                        }
+								$relativePath = $file.FullName.Substring($root.Length)
 
-                        Write-Host "Created: $destination"
-                    }
-                '''
-            }
-        }
+								# Convert Windows backslashes to ZIP forward slashes.
+								$relativePath = $relativePath -replace '\\', '/'
+
+								[System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+									$zip,
+									$file.FullName,
+									$relativePath,
+									[System.IO.Compression.CompressionLevel]::Optimal
+								) | Out-Null
+
+								Write-Host "Added: $relativePath"
+							}
+						}
+						finally {
+							$zip.Dispose()
+						}
+
+						if (!(Test-Path $destination)) {
+							throw "ZIP generation failed: $name"
+						}
+
+						Write-Host "Successfully packaged: $name"
+					}
+				'''
+			}
+		}
 
         stage('4. Verify Local Artifacts') {
             steps {
