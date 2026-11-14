@@ -128,7 +128,7 @@ pipeline {
                         $api = "$base/api/v1"
                         $packageId = $env:CPI_PACKAGE_ID
 
-                       # Use shorter Windows paths for temporary processing
+                        # Use shorter Windows paths for temporary processing
 						$work = Join-Path $env:TEMP "CPIQA-$env:BUILD_NUMBER"
 
 						$uploadDir = Join-Path $work "z"
@@ -136,6 +136,7 @@ pipeline {
 
 						New-Item -ItemType Directory -Force -Path $uploadDir | Out-Null
 						New-Item -ItemType Directory -Force -Path $tempDir | Out-Null
+
                         # -----------------------------------------
                         # 1. OAuth authentication
                         # -----------------------------------------
@@ -332,18 +333,19 @@ pipeline {
                             # 7. Prepare isolated upload project
                             # -------------------------------------
 
-                            $stageFolder = Join-Path $tempDir $id
-                            $qaExtract = Join-Path $tempDir "$id-qa"
+                            # Short directory names prevent Windows path-length issues
+							$stageFolder = Join-Path $tempDir "s"
+							$qaExtract = Join-Path $tempDir "q"
 
-                            if (Test-Path $stageFolder) {
-                                Remove-Item $stageFolder -Recurse -Force
-                            }
+							if (Test-Path $stageFolder) {
+								Remove-Item $stageFolder -Recurse -Force
+							}
 
-                            if (Test-Path $qaExtract) {
-                                Remove-Item $qaExtract -Recurse -Force
-                            }
+							if (Test-Path $qaExtract) {
+								Remove-Item $qaExtract -Recurse -Force
+							}
 
-                            New-Item -ItemType Directory -Force -Path $stageFolder | Out-Null
+							New-Item -ItemType Directory -Force -Path $stageFolder | Out-Null
 
                             # Copy latest GitHub source project
                             Get-ChildItem $sourceFolder -Force |
