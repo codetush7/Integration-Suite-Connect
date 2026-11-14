@@ -554,13 +554,10 @@ pipeline {
 
                                 Write-Host "Creating new QA artifact: $id"
 
-                                # Use the .iflw filename (without extension) as the
-                                # display Name, matching the successful Postman request.
+                                $iflowFolder = Join-Path $stageFolder "src/main/resources/scenarioflows/integrationflow"
+
                                 $iflowFiles = @(
-                                    Get-ChildItem `
-                                        -LiteralPath (Join-Path $stageFolder "src/main/resources/scenarioflows/integrationflow") `
-                                        -Filter "*.iflw" `
-                                        -File
+                                    Get-ChildItem -LiteralPath $iflowFolder -Filter "*.iflw" -File
                                 )
 
                                 if ($iflowFiles.Count -ne 1) {
@@ -569,15 +566,19 @@ pipeline {
 
                                 $displayName = [IO.Path]::GetFileNameWithoutExtension($iflowFiles[0].Name)
 
-                                $iflowName = $displayName
+                                Write-Host "Project ID: $id"
+                                Write-Host "iFlow filename: $($iflowFiles[0].Name)"
+                                Write-Host "Artifact display name: $displayName"
+                                Write-Host "Package ID: $packageId"
 
-                                $body = @{
-                                    Name = $iflowName
+                                $bodyObject = @{
+                                    Name = $displayName
                                     Id = $id
                                     PackageId = $packageId
                                     ArtifactContent = $artifactContent
-                                } | ConvertTo-Json -Depth 10 -Compress
+                                }
 
+                                $body = $bodyObject | ConvertTo-Json -Depth 10 -Compress
                                 $bodyBytes = [System.Text.Encoding]::UTF8.GetBytes($body)
 
                                 Write-Host "POST URL: $api/IntegrationDesigntimeArtifacts"
@@ -593,22 +594,40 @@ pipeline {
                                         -ContentType "application/json; charset=utf-8" `
                                         -Body $bodyBytes `
                                         -UseBasicParsing `
-                                        -TimeoutSec 60
+                                        -TimeoutSec 90 `
+                                        -ErrorAction Stop
 
                                     Write-Host "POST HTTP STATUS: $([int]$response.StatusCode)"
                                     Write-Host "POST RESPONSE: $($response.Content)"
+
+                                    if ([int]$response.StatusCode -ne 201) {
+                                        throw "Unexpected POST status: $([int]$response.StatusCode)"
+                                    }
+
+                                    Write-Host "POST completed successfully: $id"
                                 }
                                 catch {
                                     Write-Host "POST REQUEST FAILED"
                                     Write-Host "ERROR: $($_.Exception.Message)"
 
                                     if ($_.Exception.Response) {
-                                        Write-Host "HTTP STATUS: $([int]$_.Exception.Response.StatusCode)"
+                                        $httpResponse = $_.Exception.Response
+                                        Write-Host "HTTP STATUS: $([int]$httpResponse.StatusCode)"
+
+                                        try {
+                                            $reader = New-Object System.IO.StreamReader($httpResponse.GetResponseStream())
+                                            $errorBody = $reader.ReadToEnd()
+                                            $reader.Dispose()
+
+                                            Write-Host "SAP ERROR RESPONSE: $errorBody"
+                                        }
+                                        catch {
+                                            Write-Host "Could not read SAP error response."
+                                        }
                                     }
 
                                     throw
                                 }
-
                             }
 
                             # Clear artifact payload from memory.
