@@ -1,0 +1,5 @@
+#Store metainfo properties
+#Sat Nov 14 19:00:32 UTC 2026
+SAP-MigrationApproach=STANDARD
+SAP-PIPOMigrated=true
+description=System\: PI-PX4, System version\: 7.50, Pattern\: Content-Based Routing Asynchronous, Migration Approach\: Standard, Type\: Integrated Configuration, PO Artifact Name\: |BS_PRDCLNT200|DEBMAS.DEBMAS03.ZXDEBMAS03_01|urn\:sap-com\:document\:sap\:idoc\:messages||
