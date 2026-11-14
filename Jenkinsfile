@@ -8,7 +8,7 @@ pipeline {
 
     environment {
         CPI_QA_BASE_URL = 'https://d42a134dtrial.it-cpitrial05.cfapps.us10-001.hana.ondemand.com'
-        CPI_QA_TOKEN_URL = 'https://d42a134d.authentication.us10.hana.ondemand.com/oauth/token'
+        CPI_QA_TOKEN_URL = 'https://d42a134dtrial.authentication.us10.hana.ondemand.com/oauth/token'
         CPI_PACKAGE_ID = 'PKGCUSTOMERINTEGRATION'
     }
 
