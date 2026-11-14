@@ -578,6 +578,29 @@ pipeline {
                                     ArtifactContent = $artifactContent
                                 }
 
+                                Write-Host "===== POST PAYLOAD DIAGNOSTICS ====="
+
+                                Write-Host "Artifact ID: $id"
+                                Write-Host "Artifact Name: $displayName"
+                                Write-Host "Package ID: $packageId"
+
+                                if ([string]::IsNullOrWhiteSpace($artifactContent)) {
+                                    throw "ArtifactContent is empty. Cannot create artifact."
+                                }
+
+                                Write-Host "Base64 character count: $($artifactContent.Length)"
+
+                                try {
+                                    $decodedBytes = [Convert]::FromBase64String($artifactContent)
+                                    Write-Host "Decoded ZIP size: $($decodedBytes.Length) bytes"
+                                    Write-Host "ZIP signature: $([BitConverter]::ToString($decodedBytes[0..3]))"
+                                }
+                                catch {
+                                    throw "ArtifactContent is not valid Base64: $($_.Exception.Message)"
+                                }
+
+                                Write-Host "Building JSON request..."
+
                                 $body = $bodyObject | ConvertTo-Json -Depth 10 -Compress
                                 $bodyBytes = [System.Text.Encoding]::UTF8.GetBytes($body)
 
