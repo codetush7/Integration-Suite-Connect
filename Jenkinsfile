@@ -571,13 +571,6 @@ pipeline {
                                 Write-Host "Artifact display name: $displayName"
                                 Write-Host "Package ID: $packageId"
 
-                                $bodyObject = @{
-                                    Name = $displayName
-                                    Id = $id
-                                    PackageId = $packageId
-                                    ArtifactContent = $artifactContent
-                                }
-
                                 Write-Host "===== POST PAYLOAD DIAGNOSTICS ====="
 
                                 Write-Host "Artifact ID: $id"
@@ -601,8 +594,33 @@ pipeline {
 
                                 Write-Host "Building JSON request..."
 
-                                $body = $bodyObject | ConvertTo-Json -Depth 10 -Compress
+                                $artifactName = $displayName
+
+                                Write-Host "STEP 1: Creating request object..."
+
+                                $requestObject = @{
+                                    Name            = $artifactName
+                                    Id              = $id
+                                    PackageId       = $packageId
+                                    ArtifactContent = $artifactContent
+                                }
+
+                                Write-Host "STEP 2: Request object created."
+                                Write-Host "STEP 3: Serializing JSON..."
+
+                                $body = ConvertTo-Json -InputObject $requestObject -Depth 10 -Compress
+
+                                Write-Host "STEP 4: JSON serialization completed."
+                                Write-Host "JSON character count: $($body.Length)"
+
+                                Write-Host "STEP 5: Converting JSON to UTF-8..."
+
                                 $bodyBytes = [System.Text.Encoding]::UTF8.GetBytes($body)
+
+                                Write-Host "STEP 6: UTF-8 conversion completed."
+                                Write-Host "Request byte count: $($bodyBytes.Length)"
+
+                                Write-Host "STEP 7: Sending POST request to SAP..."
 
                                 Write-Host "POST URL: $api/IntegrationDesigntimeArtifacts"
                                 Write-Host "Payload size: $($bodyBytes.Length) bytes"
