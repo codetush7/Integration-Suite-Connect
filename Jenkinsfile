@@ -128,13 +128,14 @@ pipeline {
                         $api = "$base/api/v1"
                         $packageId = $env:CPI_PACKAGE_ID
 
-                        $work = "$env:WORKSPACE/qa-transfer"
-                        $uploadDir = "$work/upload-zips"
-                        $tempDir = "$work/temp"
+                       # Use shorter Windows paths for temporary processing
+						$work = Join-Path $env:TEMP "CPIQA-$env:BUILD_NUMBER"
 
-                        New-Item -ItemType Directory -Force -Path $uploadDir | Out-Null
-                        New-Item -ItemType Directory -Force -Path $tempDir | Out-Null
+						$uploadDir = Join-Path $work "z"
+						$tempDir = Join-Path $work "t"
 
+						New-Item -ItemType Directory -Force -Path $uploadDir | Out-Null
+						New-Item -ItemType Directory -Force -Path $tempDir | Out-Null
                         # -----------------------------------------
                         # 1. OAuth authentication
                         # -----------------------------------------
