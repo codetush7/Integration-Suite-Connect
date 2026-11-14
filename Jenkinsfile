@@ -249,7 +249,7 @@ pipeline {
                             }
 
                             # Fail before ZIP creation if the mandatory SAP manifest is absent.
-                            $manifestPath = Join-Path $root "META-INF\MANIFEST.MF"
+                            $manifestPath = Join-Path $root "META-INF/MANIFEST.MF"
                             if (!(Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
                                 throw "Required project manifest is missing: $manifestPath"
                             }
@@ -274,7 +274,7 @@ pipeline {
                                         )
 
                                         # ZIP entry names must use forward slashes.
-                                        $entryName = $relativePath.Replace('\', '/')
+                                        $entryName = $relativePath.Replace([char]92, [char]47)
 
                                         if ([string]::IsNullOrWhiteSpace($entryName) -or
                                             $entryName.StartsWith("/") -or
@@ -316,7 +316,7 @@ pipeline {
                                 }
 
                                 foreach ($entry in $validationZip.Entries) {
-                                    if ($entry.FullName.Contains('\')) {
+                                    if ($entry.FullName.Contains([string][char]92)) {
                                         throw "Invalid ZIP entry uses a backslash: $($entry.FullName)"
                                     }
 
