@@ -1,5 +1,0 @@
-#Store metainfo properties
-#Fri Nov 13 12:46:13 UTC 2026
-SAP-MigrationApproach=STANDARD
-SAP-PIPOMigrated=true
-description=System\: PI-DX4, System version\: 7.50, Pattern\: Content-Based Routing Asynchronous, Migration Approach\: Standard, Type\: Integrated Configuration, PO Artifact Name\: |TMS|LoadTenderAccepted|urn\:metro\:pi\:tms\:services||
