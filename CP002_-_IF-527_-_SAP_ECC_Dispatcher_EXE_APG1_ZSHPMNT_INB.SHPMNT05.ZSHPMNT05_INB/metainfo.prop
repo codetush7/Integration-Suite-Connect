@@ -1,5 +1,5 @@
 #Store metainfo properties
-#Mon Nov 16 06:06:15 UTC 2026
+#Mon Nov 16 06:25:40 UTC 2026
 SAP-MigrationApproach=STANDARD
 SAP-PIPOMigrated=true
 description=System\: PI-PX4, System version\: 7.50, Pattern\: Content-Based Routing Asynchronous, Migration Approach\: Standard, Type\: Integrated Configuration, PO Artifact Name\: |BS_PRDCLNT200|ZSHPMNT_INB.SHPMNT05.ZSHPMNT05_INB|urn\:sap-com\:document\:sap\:idoc\:messages||

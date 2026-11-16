@@ -119,7 +119,7 @@
                 </ifl:property>
                 <ifl:property>
                     <key>propertyTable</key>
-                    <value>&lt;row&gt;&lt;cell id='Action'&gt;Create&lt;/cell&gt;&lt;cell id='Type'&gt;constant&lt;/cell&gt;&lt;cell id='Value'&gt;{{Tushar}}&lt;/cell&gt;&lt;cell id='Default'&gt;&lt;/cell&gt;&lt;cell id='Name'&gt;Test&lt;/cell&gt;&lt;cell id='Datatype'&gt;&lt;/cell&gt;&lt;/row&gt;&lt;row&gt;&lt;cell id='Action'&gt;Create&lt;/cell&gt;&lt;cell id='Type'&gt;constant&lt;/cell&gt;&lt;cell id='Value'&gt;{{Hello World}}&lt;/cell&gt;&lt;cell id='Default'&gt;&lt;/cell&gt;&lt;cell id='Name'&gt;Greet&lt;/cell&gt;&lt;cell id='Datatype'&gt;&lt;/cell&gt;&lt;/row&gt;</value>
+                    <value>&lt;row&gt;&lt;cell id='Action'&gt;Create&lt;/cell&gt;&lt;cell id='Type'&gt;expression&lt;/cell&gt;&lt;cell id='Value'&gt;{{great}}&lt;/cell&gt;&lt;cell id='Default'&gt;&lt;/cell&gt;&lt;cell id='Name'&gt;Greet&lt;/cell&gt;&lt;cell id='Datatype'&gt;&lt;/cell&gt;&lt;/row&gt;</value>
                 </ifl:property>
                 <ifl:property>
                     <key>headerTable</key>
@@ -147,7 +147,7 @@
         </bpmn2:callActivity>
         <bpmn2:startEvent id="StartEvent_10180" name="Start Timer 1">
             <bpmn2:outgoing>SequenceFlow_10181</bpmn2:outgoing>
-            <bpmn2:timerEventDefinition id="TimerEventDefinition_90031">
+            <bpmn2:timerEventDefinition id="TimerEventDefinition_38305">
                 <bpmn2:extensionElements>
                     <ifl:property>
                         <key>scheduleKey</key>

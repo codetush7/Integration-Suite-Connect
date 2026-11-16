@@ -14,4 +14,28 @@
     <constraint/>
     <description/>
     <additionalMetadata/>
+  </parameter><parameter>
+    <key/>
+    <name>Greet</name>
+    <type>xsd:string</type>
+    <isRequired>false</isRequired>
+    <constraint/>
+    <description/>
+    <additionalMetadata/>
+  </parameter><parameter>
+    <key/>
+    <name>Hello</name>
+    <type>xsd:string</type>
+    <isRequired>false</isRequired>
+    <constraint/>
+    <description/>
+    <additionalMetadata/>
+  </parameter><parameter>
+    <key/>
+    <name>great</name>
+    <type>xsd:string</type>
+    <isRequired>false</isRequired>
+    <constraint/>
+    <description/>
+    <additionalMetadata/>
   </parameter><param_references/></parameters>
