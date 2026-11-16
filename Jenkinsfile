@@ -101,8 +101,14 @@ pipeline {
                             try {
                                 $files = @(Get-ChildItem -LiteralPath $source -Recurse -File -Force)
                                 foreach ($file in $files) {
-                                    $relative = $file.FullName.Substring($source.TrimEnd('\').Length).TrimStart('\','/')
-                                    $entryName = $relative.Replace('\','/')
+                                    $root = [IO.Path]::GetFullPath($source).TrimEnd(
+                                        [char[]]@([char]92, [char]47)
+                                    )
+                                    $fullPath = [IO.Path]::GetFullPath($file.FullName)
+                                    $relative = $fullPath.Substring($root.Length).TrimStart(
+                                        [char[]]@([char]92, [char]47)
+                                    )
+                                    $entryName = $relative.Replace([char]92, [char]47)
                                     [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
                                         $archive, $file.FullName, $entryName,
                                         [System.IO.Compression.CompressionLevel]::Optimal
