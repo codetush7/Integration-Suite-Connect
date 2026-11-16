@@ -1185,10 +1185,10 @@ pipeline {
                                 throw "Validation request did not return HTTP 202 for $id."
                             }
 
-                            if ($result -match '(?i)Checkexecutionresult[^\\r\\n]*Passed') {
+                            if ($result -match '(?i)Check\\s+execution\\s+result\\s*:\\s*Passed') {
                                 Write-Host "VALIDATION PASSED: $id"
                             }
-                            elseif ($result -match '(?i)Checkexecutionresult[^\\r\\n]*Failed' -or
+                            elseif ($result -match '(?i)Check\\s+execution\\s+result\\s*:\\s*Failed' -or
                                     $result -match '(?i)"severity"\\s*:\\s*"Error"') {
                                 throw "SAP validation failed for $id. Check the validation response."
                             }
