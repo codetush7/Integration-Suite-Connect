@@ -1,37 +1,5 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?><parameters><parameter>
     <key/>
-    <name>Hello World</name>
-    <type>xsd:string</type>
-    <isRequired>false</isRequired>
-    <constraint/>
-    <description/>
-    <additionalMetadata/>
-  </parameter><parameter>
-    <key/>
-    <name>Tushar</name>
-    <type>xsd:string</type>
-    <isRequired>false</isRequired>
-    <constraint/>
-    <description/>
-    <additionalMetadata/>
-  </parameter><parameter>
-    <key/>
-    <name>Greet</name>
-    <type>xsd:string</type>
-    <isRequired>false</isRequired>
-    <constraint/>
-    <description/>
-    <additionalMetadata/>
-  </parameter><parameter>
-    <key/>
-    <name>Hello</name>
-    <type>xsd:string</type>
-    <isRequired>false</isRequired>
-    <constraint/>
-    <description/>
-    <additionalMetadata/>
-  </parameter><parameter>
-    <key/>
     <name>great</name>
     <type>xsd:string</type>
     <isRequired>false</isRequired>
