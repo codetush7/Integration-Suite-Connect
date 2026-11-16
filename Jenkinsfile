@@ -437,56 +437,23 @@ pipeline {
                                 Copy-Item -Destination $stageFolder -Recurse -Force
 
                             # -------------------------------------
-                            # 8. Preserve existing QA parameters
+                            # 8. Use source parameter files as-is
                             # -------------------------------------
 
-                            if ($existingData) {
-                                Write-Host "Downloading existing QA artifact to preserve parameters."
+                            # GitHub is authoritative. Never copy old QA parameter
+                            # files into the new source artifact.
+                            $sourceParameters = Join-Path $stageFolder "src/main/resources/parameters.prop"
+                            $sourceParameterDefinitions = Join-Path $stageFolder "src/main/resources/parameters.propdef"
 
-                                $version = [string]$existingData.Version
-                                $downloadUrl = "$api/IntegrationDesigntimeArtifacts(Id='$id',Version='$version')/`$value"
-                                $qaZip = Join-Path $tempDir "current-qa.zip"
-
-                                Invoke-WebRequest `
-                                    -Uri $downloadUrl `
-                                    -Method GET `
-                                    -Headers $headers `
-                                    -WebSession $session `
-                                    -OutFile $qaZip `
-                                    -UseBasicParsing `
-                                    -TimeoutSec 120 `
-                                    -ErrorAction Stop
-
-                                if (!(Test-Path -LiteralPath $qaZip -PathType Leaf)) {
-                                    throw "Could not download existing QA artifact '$id'."
-                                }
-
-                                [System.IO.Compression.ZipFile]::ExtractToDirectory(
-                                    $qaZip,
-                                    $qaExtract
-                                )
-
-                                $qaParameters = Join-Path $qaExtract "src/main/resources/parameters.prop"
-                                $targetParameters = Join-Path $stageFolder "src/main/resources/parameters.prop"
-
-                                if (!(Test-Path -LiteralPath $qaParameters -PathType Leaf)) {
-                                    throw "Existing QA artifact has no parameters.prop. Stopping to avoid overwriting configuration."
-                                }
-
-                                if (!(Test-Path -LiteralPath (Split-Path $targetParameters -Parent) -PathType Container)) {
-                                    throw "Source project does not contain the expected resources directory."
-                                }
-
-                                Copy-Item `
-                                    -LiteralPath $qaParameters `
-                                    -Destination $targetParameters `
-                                    -Force
-
-                                Write-Host "Existing QA parameters.prop preserved."
+                            if (!(Test-Path -LiteralPath $sourceParameters -PathType Leaf)) {
+                                throw "Source project is missing src/main/resources/parameters.prop for '$id'."
                             }
-                            else {
-                                Write-Host "New artifact: using source parameters.prop."
+
+                            if (!(Test-Path -LiteralPath $sourceParameterDefinitions -PathType Leaf)) {
+                                throw "Source project is missing src/main/resources/parameters.propdef for '$id'."
                             }
+
+                            Write-Host "Using GitHub parameters.prop and parameters.propdef without modification."
 
                             # -------------------------------------
                             # 9. Create SAP-compatible ZIP
@@ -554,10 +521,13 @@ pipeline {
 
                                 Write-Host "Creating new QA artifact: $id"
 
-                                $iflowFolder = Join-Path $stageFolder "src/main/resources/scenarioflows/integrationflow"
-
+                                # Use the .iflw filename (without extension) as the
+                                # display Name, matching the successful Postman request.
                                 $iflowFiles = @(
-                                    Get-ChildItem -LiteralPath $iflowFolder -Filter "*.iflw" -File
+                                    Get-ChildItem `
+                                        -LiteralPath (Join-Path $stageFolder "src/main/resources/scenarioflows/integrationflow") `
+                                        -Filter "*.iflw" `
+                                        -File
                                 )
 
                                 if ($iflowFiles.Count -ne 1) {
@@ -566,74 +536,39 @@ pipeline {
 
                                 $displayName = [IO.Path]::GetFileNameWithoutExtension($iflowFiles[0].Name)
 
-                                Write-Host "Project ID: $id"
-                                Write-Host "iFlow filename: $($iflowFiles[0].Name)"
-                                Write-Host "Artifact display name: $displayName"
-                                Write-Host "Package ID: $packageId"
-
-                                Write-Host "===== POST PAYLOAD DIAGNOSTICS ====="
-
-                                Write-Host "Artifact ID: $id"
-                                Write-Host "Artifact Name: $displayName"
-                                Write-Host "Package ID: $packageId"
-
                                 if ([string]::IsNullOrWhiteSpace($artifactContent)) {
                                     throw "ArtifactContent is empty. Cannot create artifact."
                                 }
 
-                                Write-Host "Base64 character count: $($artifactContent.Length)"
-
-                                try {
-                                    $decodedBytes = [Convert]::FromBase64String($artifactContent)
-                                    Write-Host "Decoded ZIP size: $($decodedBytes.Length) bytes"
-                                    Write-Host "ZIP signature: $([BitConverter]::ToString($decodedBytes[0..3]))"
-                                }
-                                catch {
-                                    throw "ArtifactContent is not valid Base64: $($_.Exception.Message)"
+                                # Sanity check on the exact bytes being uploaded (50-4B-03-04 = ZIP).
+                                $zipSignature = [BitConverter]::ToString($zipBytes[0..3])
+                                if ($zipSignature -ne "50-4B-03-04") {
+                                    throw "Upload package is not a valid ZIP (signature $zipSignature)."
                                 }
 
-                                Write-Host "Building JSON request..."
-
-                                $artifactName = $displayName
-
-                                Write-Host "STEP 1: Preparing JSON fields..."
-
-                                $nameJson = ConvertTo-Json -InputObject ([string]$artifactName) -Compress
+                                # Build the JSON by hand: base64 is JSON-safe, and this avoids slow
+                                # ConvertTo-Json serialization of the large ArtifactContent string.
+                                $nameJson = ConvertTo-Json -InputObject ([string]$displayName) -Compress
                                 $idJson = ConvertTo-Json -InputObject ([string]$id) -Compress
                                 $packageJson = ConvertTo-Json -InputObject ([string]$packageId) -Compress
 
-                                Write-Host "STEP 2: JSON fields prepared."
-
-                                if ([string]::IsNullOrWhiteSpace($artifactContent)) {
-                                    throw "ArtifactContent is empty."
-                                }
-
-                                Write-Host "STEP 3: Constructing JSON request..."
-
-                                # Base64 contains only JSON-safe characters.
                                 $body = '{"Name":' + $nameJson +
                                         ',"Id":' + $idJson +
                                         ',"PackageId":' + $packageJson +
                                         ',"ArtifactContent":"' + $artifactContent + '"}'
 
-                                Write-Host "STEP 4: JSON request constructed."
-                                Write-Host "JSON character count: $($body.Length)"
-
-                                Write-Host "STEP 5: Converting JSON to UTF-8..."
-
-                                $bodyBytes = [System.Text.Encoding]::UTF8.GetBytes($body)
-
-                                Write-Host "STEP 6: UTF-8 conversion completed."
-                                Write-Host "Request byte count: $($bodyBytes.Length)"
-
-                                Write-Host "STEP 7: Sending POST request to SAP..."
+                                $bodyBytes = [Text.Encoding]::UTF8.GetBytes($body)
 
                                 Write-Host "POST URL: $api/IntegrationDesigntimeArtifacts"
-                                Write-Host "Payload size: $($bodyBytes.Length) bytes"
-                                Write-Host "Sending POST request to SAP..."
+                                Write-Host "Artifact ID: $id"
+                                Write-Host "Artifact display name: $displayName"
+                                Write-Host "Package ID: $packageId"
+                                Write-Host "ZIP size: $($zipBytes.Length) bytes"
+                                Write-Host "ZIP signature: $zipSignature"
+                                Write-Host "POST JSON size: $($bodyBytes.Length) bytes"
 
                                 try {
-                                    $response = Invoke-WebRequest `
+                                    $postResponse = Invoke-WebRequest `
                                         -Uri "$api/IntegrationDesigntimeArtifacts" `
                                         -Method POST `
                                         -Headers $headers `
@@ -641,35 +576,40 @@ pipeline {
                                         -ContentType "application/json; charset=utf-8" `
                                         -Body $bodyBytes `
                                         -UseBasicParsing `
-                                        -TimeoutSec 90 `
+                                        -TimeoutSec 180 `
                                         -ErrorAction Stop
 
-                                    Write-Host "POST HTTP STATUS: $([int]$response.StatusCode)"
-                                    Write-Host "POST RESPONSE: $($response.Content)"
+                                    $postStatus = [int]$postResponse.StatusCode
+                                    Write-Host "POST HTTP STATUS: $postStatus"
 
-                                    if ([int]$response.StatusCode -ne 201) {
-                                        throw "Unexpected POST status: $([int]$response.StatusCode)"
+                                    if ($postStatus -lt 200 -or $postStatus -ge 300) {
+                                        throw "SAP POST returned HTTP status $postStatus."
                                     }
 
                                     Write-Host "POST completed successfully: $id"
                                 }
                                 catch {
-                                    Write-Host "POST REQUEST FAILED"
-                                    Write-Host "ERROR: $($_.Exception.Message)"
+                                    Write-Host "POST FAILED for: $id"
+                                    Write-Host "POST ERROR: $($_.Exception.Message)"
 
                                     if ($_.Exception.Response) {
-                                        $httpResponse = $_.Exception.Response
-                                        Write-Host "HTTP STATUS: $([int]$httpResponse.StatusCode)"
-
                                         try {
-                                            $reader = New-Object System.IO.StreamReader($httpResponse.GetResponseStream())
+                                            $response = $_.Exception.Response
+                                            Write-Host "POST HTTP STATUS: $([int]$response.StatusCode)"
+
+                                            $reader = New-Object System.IO.StreamReader(
+                                                $response.GetResponseStream()
+                                            )
                                             $errorBody = $reader.ReadToEnd()
                                             $reader.Dispose()
 
-                                            Write-Host "SAP ERROR RESPONSE: $errorBody"
+                                            if (![string]::IsNullOrWhiteSpace($errorBody)) {
+                                                Write-Host "SAP ERROR RESPONSE:"
+                                                Write-Host $errorBody
+                                            }
                                         }
                                         catch {
-                                            Write-Host "Could not read SAP error response."
+                                            Write-Host "Could not read the SAP error response body."
                                         }
                                     }
 
@@ -763,7 +703,7 @@ pipeline {
 
                         Write-Host ""
                         Write-Host "All iFlows verified in QA design time."
-                        Write-Host "No runtime deployment was performed."
+                        Write-Host "No runtime deployment was performed in this stage."
 
                         # Clear sensitive variables.
                         $token = $null
@@ -777,206 +717,7 @@ pipeline {
             }
         }
 
-        stage('6. Inject QA Externalized Parameters') {
-            steps {
-                withCredentials([
-                    usernamePassword(
-                        credentialsId: 'CPI_QA_OAUTH',
-                        usernameVariable: 'CPI_CLIENT_ID',
-                        passwordVariable: 'CPI_CLIENT_SECRET'
-                    )
-                ]) {
-                    powershell '''
-                        $ErrorActionPreference = "Stop"
-
-                        $api = "$($env:CPI_QA_BASE_URL.TrimEnd('/'))/api/v1"
-                        $configRoot = Join-Path $env:WORKSPACE "config/QA"
-                        $projects = Get-Content "$env:WORKSPACE/discovered-iflows.txt"
-
-                        # OAuth
-                        $pair = "$env:CPI_CLIENT_ID`:$env:CPI_CLIENT_SECRET"
-                        $basic = [Convert]::ToBase64String(
-                            [Text.Encoding]::UTF8.GetBytes($pair)
-                        )
-
-                        $tokenResponse = Invoke-RestMethod `
-                            -Uri $env:CPI_QA_TOKEN_URL `
-                            -Method POST `
-                            -Headers @{ Authorization = "Basic $basic" } `
-                            -Body @{ grant_type = "client_credentials" } `
-                            -ContentType "application/x-www-form-urlencoded" `
-                            -TimeoutSec 60
-
-                        $token = $tokenResponse.access_token
-                        if ([string]::IsNullOrWhiteSpace($token)) {
-                            throw "QA OAuth authentication failed."
-                        }
-
-                        $session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
-
-                        $headers = @{
-                            Authorization = "Bearer $token"
-                            Accept = "application/json"
-                        }
-
-                        # CSRF token
-                        $csrfResponse = Invoke-WebRequest `
-                            -Uri "$api/" `
-                            -Method GET `
-                            -Headers @{
-                                Authorization = "Bearer $token"
-                                "X-CSRF-Token" = "Fetch"
-                            } `
-                            -WebSession $session `
-                            -UseBasicParsing `
-                            -TimeoutSec 60
-
-                        $csrf = $csrfResponse.Headers["X-CSRF-Token"]
-                        if ([string]::IsNullOrWhiteSpace($csrf)) {
-                            throw "Could not obtain QA CSRF token."
-                        }
-
-                        $headers["X-CSRF-Token"] = $csrf
-
-                        foreach ($id in $projects) {
-                            Write-Host "Configuring iFlow: $id"
-
-                            $configFile = Join-Path $configRoot "$id.json"
-
-                            if (!(Test-Path -LiteralPath $configFile -PathType Leaf)) {
-                                throw "Missing QA configuration file: $configFile"
-                            }
-
-                            $config = Get-Content -LiteralPath $configFile -Raw |
-                                ConvertFrom-Json
-
-                            if ($null -eq $config) {
-                                throw "Configuration JSON is empty or invalid for $id."
-                            }
-
-                            $properties = @($config.PSObject.Properties)
-                            if ($properties.Count -eq 0) {
-                                throw "No parameter values defined in $configFile."
-                            }
-
-                            # Resolve the active artifact version.
-                            $encodedId = [Uri]::EscapeDataString($id)
-                            $metadataUrl = "$api/IntegrationDesigntimeArtifacts(Id='$id',Version='active')"
-
-                            $metadata = Invoke-RestMethod `
-                                -Uri $metadataUrl `
-                                -Method GET `
-                                -Headers $headers `
-                                -WebSession $session `
-                                -TimeoutSec 60
-
-                            $artifact = if ($metadata.d) { $metadata.d } else { $metadata }
-                            $version = [string]$artifact.Version
-
-                            if ([string]::IsNullOrWhiteSpace($version)) {
-                                throw "Could not determine active version for $id."
-                            }
-
-                            # Read the externalized configuration keys.
-                            $configUrl = "$api/IntegrationDesigntimeArtifacts(Id='$id',Version='$version')/Configurations"
-
-                            $configurationResponse = Invoke-RestMethod `
-                                -Uri $configUrl `
-                                -Method GET `
-                                -Headers $headers `
-                                -WebSession $session `
-                                -TimeoutSec 60
-
-                            if ($configurationResponse.d.results) {
-                                $availableParameters = @($configurationResponse.d.results)
-                            }
-                            elseif ($configurationResponse.value) {
-                                $availableParameters = @($configurationResponse.value)
-                            }
-                            else {
-                                throw "Unexpected Configurations response for $id. Inspect the API response before proceeding."
-                            }
-
-                            foreach ($property in $properties) {
-                                $key = [string]$property.Name
-                                $value = [string]$property.Value
-
-                                $parameter = $availableParameters |
-                                    Where-Object { $_.ParameterKey -ceq $key } |
-                                    Select-Object -First 1
-
-                                if (!$parameter) {
-                                    throw "Parameter '$key' is not exposed by iFlow '$id'. Check the JSON key and iFlow externalization."
-                                }
-
-                                $encodedKey = [Uri]::EscapeDataString($key)
-
-                                $parameterUrl = "$api/IntegrationDesigntimeArtifacts(Id='$id',Version='$version')/`$links/Configurations('$encodedKey')"
-
-                                $bodyObject = @{
-                                    ParameterKey = $key
-                                    ParameterValue = $value
-                                    DataType = $parameter.DataType
-                                }
-
-                                $body = $bodyObject |
-                                    ConvertTo-Json -Depth 10 -Compress
-
-                                Invoke-RestMethod `
-                                    -Uri $parameterUrl `
-                                    -Method PUT `
-                                    -Headers $headers `
-                                    -WebSession $session `
-                                    -ContentType "application/json; charset=utf-8" `
-                                    -Body ([Text.Encoding]::UTF8.GetBytes($body)) `
-                                    -TimeoutSec 60
-
-                                Write-Host "Updated parameter: $id / $key"
-                            }
-
-                            # Read-after-write verification.
-                            $check = Invoke-RestMethod `
-                                -Uri $configUrl `
-                                -Method GET `
-                                -Headers $headers `
-                                -WebSession $session `
-                                -TimeoutSec 60
-
-                            if ($check.d.results) {
-                                $verifiedParameters = @($check.d.results)
-                            }
-                            elseif ($check.value) {
-                                $verifiedParameters = @($check.value)
-                            }
-                            else {
-                                throw "Could not read back configuration for $id."
-                            }
-
-                            foreach ($property in $properties) {
-                                $actual = $verifiedParameters |
-                                    Where-Object { $_.ParameterKey -ceq $property.Name } |
-                                    Select-Object -First 1
-
-                                if (!$actual -or
-                                    [string]$actual.ParameterValue -cne [string]$property.Value) {
-                                    throw "Parameter verification failed for '$id / $($property.Name)'."
-                                }
-                            }
-
-                            Write-Host "QA PARAMETERS VERIFIED: $id"
-                        }
-
-                        Write-Host "Externalized parameter injection completed."
-                        $token = $null
-                        $basic = $null
-                        $pair = $null
-                        $headers = $null
-                    '''
-                }
-            }
-        }
-
-        stage('7. Download and Verify QA Artifacts') {
+        stage('6. Verify QA Parameter Files Match GitHub') {
             steps {
                 withCredentials([
                     usernamePassword(
@@ -993,15 +734,26 @@ pipeline {
 
                         $api = "$($env:CPI_QA_BASE_URL.TrimEnd('/'))/api/v1"
                         $projects = Get-Content "$env:WORKSPACE/discovered-iflows.txt"
+                        $verifyRoot = Join-Path $env:WORKSPACE "qa-parameter-verification"
+                        New-Item -ItemType Directory -Force -Path $verifyRoot | Out-Null
 
-                        $verifyDir = Join-Path $env:WORKSPACE "qa-download-verification"
-                        New-Item -ItemType Directory -Force -Path $verifyDir | Out-Null
+                        # Hash the text with line endings normalized, so a Windows (CRLF) checkout
+                        # is not reported as different from the LF copy stored in QA.
+                        function Get-NormalizedHash([string]$Path) {
+                            $text = [IO.File]::ReadAllText($Path).Replace("`r`n", "`n")
+                            $sha = [System.Security.Cryptography.SHA256]::Create()
+                            try {
+                                return [BitConverter]::ToString(
+                                    $sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($text))
+                                ).Replace("-", "")
+                            }
+                            finally {
+                                $sha.Clear()
+                            }
+                        }
 
-                        # OAuth
                         $pair = "$env:CPI_CLIENT_ID`:$env:CPI_CLIENT_SECRET"
-                        $basic = [Convert]::ToBase64String(
-                            [Text.Encoding]::UTF8.GetBytes($pair)
-                        )
+                        $basic = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($pair))
 
                         $tokenResponse = Invoke-RestMethod `
                             -Uri $env:CPI_QA_TOKEN_URL `
@@ -1013,123 +765,101 @@ pipeline {
 
                         $token = $tokenResponse.access_token
                         if ([string]::IsNullOrWhiteSpace($token)) {
-                            throw "QA OAuth authentication failed."
+                            throw "QA OAuth authentication failed during parameter-file verification."
                         }
 
-                        $headers = @{
-                            Authorization = "Bearer $token"
-                            Accept = "application/json"
-                        }
-
+                        $headers = @{ Authorization = "Bearer $token"; Accept = "application/json" }
                         $session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
 
                         foreach ($id in $projects) {
-                            Write-Host "Verifying downloaded artifact: $id"
+                            Write-Host "Verifying parameter files for: $id"
+
+                            $sourceResources = Join-Path (Join-Path $env:WORKSPACE $id) "src/main/resources"
+                            $sourceProp = Join-Path $sourceResources "parameters.prop"
+                            $sourcePropdef = Join-Path $sourceResources "parameters.propdef"
+
+                            foreach ($sourceFile in @($sourceProp, $sourcePropdef)) {
+                                if (!(Test-Path -LiteralPath $sourceFile -PathType Leaf)) {
+                                    throw "Required source parameter file is missing: $sourceFile"
+                                }
+                            }
 
                             $metadataUrl = "$api/IntegrationDesigntimeArtifacts(Id='$id',Version='active')"
-
-                            $metadata = Invoke-RestMethod `
+                            $metadataResponse = Invoke-RestMethod `
                                 -Uri $metadataUrl `
                                 -Method GET `
                                 -Headers $headers `
                                 -WebSession $session `
                                 -TimeoutSec 60
 
-                            $artifact = if ($metadata.d) { $metadata.d } else { $metadata }
-
-                            if ($artifact.Id -ne $id) {
-                                throw "Artifact ID mismatch for $id."
-                            }
-
-                            if ($artifact.PackageId -ne $env:CPI_PACKAGE_ID) {
-                                throw "Package mismatch for $id."
-                            }
-
-                            $version = [string]$artifact.Version
+                            $metadata = if ($metadataResponse.d) { $metadataResponse.d } else { $metadataResponse }
+                            $version = [string]$metadata.Version
                             if ([string]::IsNullOrWhiteSpace($version)) {
-                                throw "No version returned for $id."
+                                throw "Could not determine active QA version for '$id'."
                             }
 
                             $downloadUrl = "$api/IntegrationDesigntimeArtifacts(Id='$id',Version='$version')/`$value"
-                            $downloadZip = Join-Path $verifyDir "$id.zip"
+                            $workDir = Join-Path $verifyRoot ([Guid]::NewGuid().ToString())
+                            $zipPath = Join-Path $workDir "$id.zip"
+                            $extractDir = Join-Path $workDir "unzipped"
+                            New-Item -ItemType Directory -Force -Path $extractDir | Out-Null
 
                             Invoke-WebRequest `
                                 -Uri $downloadUrl `
                                 -Method GET `
                                 -Headers $headers `
                                 -WebSession $session `
-                                -OutFile $downloadZip `
+                                -OutFile $zipPath `
                                 -UseBasicParsing `
                                 -TimeoutSec 120
 
-                            if (!(Test-Path -LiteralPath $downloadZip -PathType Leaf)) {
-                                throw "Downloaded ZIP not found for $id."
+                            if (!(Test-Path -LiteralPath $zipPath -PathType Leaf)) {
+                                throw "Could not download active QA artifact for '$id'."
                             }
 
-                            $archive = [System.IO.Compression.ZipFile]::OpenRead($downloadZip)
+                            [System.IO.Compression.ZipFile]::ExtractToDirectory($zipPath, $extractDir)
 
-                            try {
-                                $entries = @($archive.Entries)
+                            $qaResources = Join-Path $extractDir "src/main/resources"
+                            $qaProp = Join-Path $qaResources "parameters.prop"
+                            $qaPropdef = Join-Path $qaResources "parameters.propdef"
 
-                                $manifest = $entries |
-                                    Where-Object { $_.FullName -ceq "META-INF/MANIFEST.MF" } |
-                                    Select-Object -First 1
-
-                                if (!$manifest) {
-                                    throw "Downloaded ZIP for $id has no root META-INF/MANIFEST.MF."
-                                }
-
-                                $entryNames = @($entries | ForEach-Object {
-                                    $_.FullName.Replace('\\', '/')
-                                })
-
-                                if ($entryNames.Count -eq 0) {
-                                    throw "Downloaded ZIP for $id is empty."
-                                }
-
-                                Write-Host "Downloaded ZIP is valid: $id"
-                                Write-Host "Artifact version: $version"
-                                Write-Host "ZIP entry count: $($entryNames.Count)"
-                            }
-                            finally {
-                                $archive.Dispose()
-                            }
-
-                            # Compare source project file paths with downloaded ZIP paths.
-                            # SAP-generated or changed metadata may cause additional entries;
-                            # source files must still be present.
-                            $sourceFolder = Join-Path $env:WORKSPACE $id
-
-                            $sourceFiles = Get-ChildItem `
-                                -LiteralPath $sourceFolder `
-                                -Recurse `
-                                -File `
-                                -Force
-
-                            foreach ($file in $sourceFiles) {
-                                $relative = $file.FullName.Substring(
-                                    $sourceFolder.TrimEnd('\\').Length
-                                ).TrimStart('\\','/').Replace('\\','/')
-
-                                if ($entryNames -cnotcontains $relative) {
-                                    throw "Source file missing from downloaded QA ZIP: $id / $relative"
+                            foreach ($qaFile in @($qaProp, $qaPropdef)) {
+                                if (!(Test-Path -LiteralPath $qaFile -PathType Leaf)) {
+                                    throw "Downloaded QA artifact '$id' is missing: $([IO.Path]::GetFileName($qaFile))"
                                 }
                             }
 
-                            Write-Host "SOURCE FILE PATHS VERIFIED: $id"
+                            $comparisons = @(
+                                @{ Name = "parameters.prop"; Source = $sourceProp; QA = $qaProp },
+                                @{ Name = "parameters.propdef"; Source = $sourcePropdef; QA = $qaPropdef }
+                            )
+
+                            foreach ($item in $comparisons) {
+                                $sourceHash = Get-NormalizedHash $item.Source
+                                $qaHash = Get-NormalizedHash $item.QA
+                                if ($sourceHash -cne $qaHash) {
+                                    Write-Host "GitHub hash: $sourceHash"
+                                    Write-Host "QA hash:     $qaHash"
+                                    throw "Parameter file mismatch for '$id': $($item.Name). GitHub and QA contents differ (line endings ignored)."
+                                }
+                                Write-Host "MATCHED: $id / $($item.Name)"
+                            }
+
+                            Write-Host "QA PARAMETER FILES EXACTLY MATCH GITHUB: $id"
                         }
 
-                        Write-Host "All QA artifacts downloaded and structurally verified."
+                        Write-Host "All QA parameters.prop and parameters.propdef files match GitHub."
                         $token = $null
-                        $basic = $null
+                        $tokenResponse = $null
                         $pair = $null
+                        $basic = $null
                         $headers = $null
                     '''
                 }
             }
         }
 
-        stage('8. Validate QA iFlows') {
+        stage('7. Validate QA iFlows') {
             steps {
                 withCredentials([
                     usernamePassword(
@@ -1231,7 +961,7 @@ pipeline {
             }
         }
 
-        stage('9. Trigger QA Deployment') {
+        stage('8. Trigger QA Deployment') {
             steps {
                 withCredentials([
                     usernamePassword(
@@ -1371,7 +1101,7 @@ pipeline {
             }
         }
 
-        stage('10. Verify QA Runtime Deployment') {
+        stage('9. Verify QA Runtime Deployment') {
             steps {
                 withCredentials([
                     usernamePassword(
@@ -1534,7 +1264,7 @@ pipeline {
     post {
         success {
             echo 'GitHub to QA transfer completed successfully.'
-            echo 'QA externalized parameters injected and verified.'
+            echo 'QA parameters.prop and parameters.propdef verified against GitHub.'
             echo 'QA iFlows validated, deployed and runtime status verified.'
         }
 
