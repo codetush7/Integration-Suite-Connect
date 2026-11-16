@@ -461,7 +461,22 @@ pipeline {
                                 $qaHash = (Get-FileHash -LiteralPath $qaFile -Algorithm SHA256).Hash
                                 Write-Host "SOURCE $fileName SHA256: $sourceHash"
                                 Write-Host "QA     $fileName SHA256: $qaHash"
-                                if ($sourceHash -cne $qaHash) { throw "$fileName differs between GitHub and QA for '$id'." }
+                                if ($sourceHash -ne $qaHash) {
+                                    Write-Host "HASH MISMATCH: $fileName"
+                                    Write-Host "----- GITHUB SOURCE CONTENT -----"
+                                    Get-Content -LiteralPath $sourceFile -Raw
+                                    Write-Host "----- QA DOWNLOADED CONTENT -----"
+                                    Get-Content -LiteralPath $qaFile -Raw
+                                
+                                    Write-Host "----- BYTE-LEVEL COMPARISON -----"
+                                    $sourceBytes = [IO.File]::ReadAllBytes($sourceFile)
+                                    $qaBytes = [IO.File]::ReadAllBytes($qaFile)
+                                
+                                    Write-Host "Source bytes: $($sourceBytes.Length)"
+                                    Write-Host "QA bytes: $($qaBytes.Length)"
+                                
+                                    throw "$fileName differs between GitHub and QA for '$id'."
+                                }
                                 Write-Host "MATCH: $fileName"
                             }
 
