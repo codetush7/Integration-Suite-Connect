@@ -1280,11 +1280,7 @@ pipeline {
                                 -UseBasicParsing `
                                 -TimeoutSec 180
 
-                            $responseText = $response.Content
-							if ($responseText -is [byte[]]) {
-    							$responseText = [System.Text.Encoding]::UTF8.GetString($responseText)
-							}
-							$responseText = ([string]$responseText).Trim()
+                            $responseText = [string]$response.Content
 
                             Write-Host "Deployment HTTP status: $([int]$response.StatusCode)"
                             Write-Host "Deployment response: $responseText"
@@ -1293,39 +1289,31 @@ pipeline {
                                 throw "Deployment trigger did not return HTTP 202 for $id."
                             }
 
-                                                        # Extract TaskId: plain text (normal case), JSON or XML.
+                            # Extract TaskId from JSON or XML response.
                             $taskId = $null
 
-                            # 1. Plain-text GUID, which is what SAP normally returns
-                            if ($responseText -match '^\s*([0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12})\s*$') {
-                                $taskId = $Matches[1]
-                            }
+                            try {
+                                $json = $responseText | ConvertFrom-Json
 
-                            # 2. JSON fallback
-                            if ([string]::IsNullOrWhiteSpace($taskId)) {
-                                try {
-                                    $json = $responseText | ConvertFrom-Json
-                                    if ($json.d.TaskId)      { $taskId = [string]$json.d.TaskId }
-                                    elseif ($json.TaskId)    { $taskId = [string]$json.TaskId }
+                                if ($json.d.TaskId) {
+                                    $taskId = [string]$json.d.TaskId
                                 }
-                                catch { }
+                                elseif ($json.TaskId) {
+                                    $taskId = [string]$json.TaskId
+                                }
+                            }
+                            catch {
+                                # Response may be XML rather than JSON.
                             }
 
-                            # 3. XML fallback
                             if ([string]::IsNullOrWhiteSpace($taskId)) {
                                 if ($responseText -match '(?i)<(?:[^:>]+:)?TaskId[^>]*>([^<]+)</(?:[^:>]+:)?TaskId>') {
-                                    $taskId = $Matches[1].Trim()
+                                    $taskId = $Matches[1]
                                 }
                             }
 
-                            # 4. Last resort: any GUID anywhere in the response
                             if ([string]::IsNullOrWhiteSpace($taskId)) {
-                                $m = [regex]::Match($responseText, '[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}')
-                                if ($m.Success) { $taskId = $m.Value }
-                            }
-
-                            if ([string]::IsNullOrWhiteSpace($taskId)) {
-                                throw "SAP returned no readable TaskId for $id. Response was: $responseText"
+                                throw "SAP returned no readable TaskId for $id. Inspect the deployment response."
                             }
 
                             Write-Host "DEPLOYMENT TASK CREATED: $id"
