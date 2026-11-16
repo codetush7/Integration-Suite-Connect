@@ -1,0 +1,5 @@
+#Store metainfo properties
+#Mon Nov 16 12:11:46 UTC 2026
+SAP-MigrationApproach=STANDARD
+SAP-PIPOMigrated=true
+description=System\: PI-PX4, System version\: 7.50, Pattern\: Point-to-Point Asynchronous, Migration Approach\: Standard, Type\: Integrated Configuration, PO Artifact Name\: |BS_PRDCLNT200|ZTMSPMT.ZTMSPMT01|urn\:sap-com\:document\:sap\:idoc\:messages||
