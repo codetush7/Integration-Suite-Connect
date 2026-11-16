@@ -1128,12 +1128,414 @@ pipeline {
                 }
             }
         }
+
+        stage('8. Validate QA iFlows') {
+            steps {
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'CPI_QA_OAUTH',
+                        usernameVariable: 'CPI_CLIENT_ID',
+                        passwordVariable: 'CPI_CLIENT_SECRET'
+                    )
+                ]) {
+                    powershell '''
+                        $ErrorActionPreference = "Stop"
+
+                        $api = "$($env:CPI_QA_BASE_URL.TrimEnd('/'))/api/v1"
+                        $projects = Get-Content "$env:WORKSPACE/discovered-iflows.txt"
+
+                        # OAuth
+                        $pair = "$env:CPI_CLIENT_ID`:$env:CPI_CLIENT_SECRET"
+                        $basic = [Convert]::ToBase64String(
+                            [Text.Encoding]::UTF8.GetBytes($pair)
+                        )
+
+                        $tokenResponse = Invoke-RestMethod `
+                            -Uri $env:CPI_QA_TOKEN_URL `
+                            -Method POST `
+                            -Headers @{ Authorization = "Basic $basic" } `
+                            -Body @{ grant_type = "client_credentials" } `
+                            -ContentType "application/x-www-form-urlencoded" `
+                            -TimeoutSec 60
+
+                        $token = $tokenResponse.access_token
+                        if ([string]::IsNullOrWhiteSpace($token)) {
+                            throw "QA OAuth authentication failed."
+                        }
+
+                        $session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
+
+                        $headers = @{
+                            Authorization = "Bearer $token"
+                            Accept = "application/json"
+                        }
+
+                        # Fetch CSRF token
+                        $csrfResponse = Invoke-WebRequest `
+                            -Uri "$api/" `
+                            -Method GET `
+                            -Headers @{
+                                Authorization = "Bearer $token"
+                                "X-CSRF-Token" = "Fetch"
+                            } `
+                            -WebSession $session `
+                            -UseBasicParsing `
+                            -TimeoutSec 60
+
+                        $csrf = $csrfResponse.Headers["X-CSRF-Token"]
+
+                        if ([string]::IsNullOrWhiteSpace($csrf)) {
+                            throw "Unable to obtain QA CSRF token."
+                        }
+
+                        $headers["X-CSRF-Token"] = $csrf
+
+                        foreach ($id in $projects) {
+                            Write-Host "Validating iFlow: $id"
+
+                            $url = "$api/ValidateIntegrationDesigntimeArtifact?Id='$id'&Version='active'"
+
+                            $response = Invoke-WebRequest `
+                                -Uri $url `
+                                -Method POST `
+                                -Headers $headers `
+                                -WebSession $session `
+                                -ContentType "application/json" `
+                                -UseBasicParsing `
+                                -TimeoutSec 180
+
+                            $result = [string]$response.Content
+
+                            Write-Host "Validation HTTP status: $([int]$response.StatusCode)"
+                            Write-Host "Validation response: $result"
+
+                            if ([int]$response.StatusCode -ne 202) {
+                                throw "Validation request did not return HTTP 202 for $id."
+                            }
+
+                            if ($result -match '(?i)Checkexecutionresult[^\\r\\n]*Passed') {
+                                Write-Host "VALIDATION PASSED: $id"
+                            }
+                            elseif ($result -match '(?i)Checkexecutionresult[^\\r\\n]*Failed' -or
+                                    $result -match '(?i)"severity"\\s*:\\s*"Error"') {
+                                throw "SAP validation failed for $id. Check the validation response."
+                            }
+                            else {
+                                throw "Could not confirm a Passed validation result for $id. Inspect the response before deploying."
+                            }
+                        }
+
+                        Write-Host "All iFlows passed validation."
+                    '''
+                }
+            }
+        }
+
+        stage('9. Trigger QA Deployment') {
+            steps {
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'CPI_QA_OAUTH',
+                        usernameVariable: 'CPI_CLIENT_ID',
+                        passwordVariable: 'CPI_CLIENT_SECRET'
+                    )
+                ]) {
+                    powershell '''
+                        $ErrorActionPreference = "Stop"
+
+                        $api = "$($env:CPI_QA_BASE_URL.TrimEnd('/'))/api/v1"
+                        $projects = Get-Content "$env:WORKSPACE/discovered-iflows.txt"
+
+                        # OAuth
+                        $pair = "$env:CPI_CLIENT_ID`:$env:CPI_CLIENT_SECRET"
+                        $basic = [Convert]::ToBase64String(
+                            [Text.Encoding]::UTF8.GetBytes($pair)
+                        )
+
+                        $tokenResponse = Invoke-RestMethod `
+                            -Uri $env:CPI_QA_TOKEN_URL `
+                            -Method POST `
+                            -Headers @{ Authorization = "Basic $basic" } `
+                            -Body @{ grant_type = "client_credentials" } `
+                            -ContentType "application/x-www-form-urlencoded" `
+                            -TimeoutSec 60
+
+                        $token = $tokenResponse.access_token
+                        if ([string]::IsNullOrWhiteSpace($token)) {
+                            throw "QA OAuth authentication failed."
+                        }
+
+                        $session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
+
+                        $headers = @{
+                            Authorization = "Bearer $token"
+                            Accept = "application/json"
+                        }
+
+                        # Fetch CSRF token
+                        $csrfResponse = Invoke-WebRequest `
+                            -Uri "$api/" `
+                            -Method GET `
+                            -Headers @{
+                                Authorization = "Bearer $token"
+                                "X-CSRF-Token" = "Fetch"
+                            } `
+                            -WebSession $session `
+                            -UseBasicParsing `
+                            -TimeoutSec 60
+
+                        $csrf = $csrfResponse.Headers["X-CSRF-Token"]
+
+                        if ([string]::IsNullOrWhiteSpace($csrf)) {
+                            throw "Unable to obtain QA CSRF token."
+                        }
+
+                        $headers["X-CSRF-Token"] = $csrf
+
+                        $deploymentTasks = @()
+
+                        foreach ($id in $projects) {
+                            Write-Host "Triggering deployment for: $id"
+
+                            $url = "$api/DeployIntegrationDesigntimeArtifact?Id='$id'&Version='active'"
+
+                            $response = Invoke-WebRequest `
+                                -Uri $url `
+                                -Method POST `
+                                -Headers $headers `
+                                -WebSession $session `
+                                -ContentType "application/json" `
+                                -UseBasicParsing `
+                                -TimeoutSec 180
+
+                            $responseText = [string]$response.Content
+
+                            Write-Host "Deployment HTTP status: $([int]$response.StatusCode)"
+                            Write-Host "Deployment response: $responseText"
+
+                            if ([int]$response.StatusCode -ne 202) {
+                                throw "Deployment trigger did not return HTTP 202 for $id."
+                            }
+
+                            # Extract TaskId from JSON or XML response.
+                            $taskId = $null
+
+                            try {
+                                $json = $responseText | ConvertFrom-Json
+
+                                if ($json.d.TaskId) {
+                                    $taskId = [string]$json.d.TaskId
+                                }
+                                elseif ($json.TaskId) {
+                                    $taskId = [string]$json.TaskId
+                                }
+                            }
+                            catch {
+                                # Response may be XML rather than JSON.
+                            }
+
+                            if ([string]::IsNullOrWhiteSpace($taskId)) {
+                                if ($responseText -match '(?i)<(?:[^:>]+:)?TaskId[^>]*>([^<]+)</(?:[^:>]+:)?TaskId>') {
+                                    $taskId = $Matches[1]
+                                }
+                            }
+
+                            if ([string]::IsNullOrWhiteSpace($taskId)) {
+                                throw "SAP returned no readable TaskId for $id. Inspect the deployment response."
+                            }
+
+                            Write-Host "DEPLOYMENT TASK CREATED: $id"
+                            Write-Host "TASK ID: $taskId"
+
+                            $deploymentTasks += [PSCustomObject]@{
+                                Id = $id
+                                TaskId = $taskId
+                            }
+                        }
+
+                        $taskFile = Join-Path $env:WORKSPACE "deployment-tasks.json"
+
+                        $deploymentTasks |
+                            ConvertTo-Json -Depth 5 |
+                            Set-Content -LiteralPath $taskFile -Encoding UTF8
+
+                        Write-Host "All deployment tasks have been created."
+                        Write-Host "Task details saved to: $taskFile"
+                    '''
+                }
+
+                archiveArtifacts(
+                    artifacts: 'deployment-tasks.json',
+                    fingerprint: true
+                )
+            }
+        }
+
+        stage('10. Verify QA Runtime Deployment') {
+            steps {
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'CPI_QA_OAUTH',
+                        usernameVariable: 'CPI_CLIENT_ID',
+                        passwordVariable: 'CPI_CLIENT_SECRET'
+                    )
+                ]) {
+                    powershell '''
+                        $ErrorActionPreference = "Stop"
+
+                        $api = "$($env:CPI_QA_BASE_URL.TrimEnd('/'))/api/v1"
+
+                        $taskFile = Join-Path $env:WORKSPACE "deployment-tasks.json"
+
+                        if (!(Test-Path -LiteralPath $taskFile)) {
+                            throw "Deployment task file is missing."
+                        }
+
+                        $tasks = @(Get-Content -LiteralPath $taskFile -Raw |
+                            ConvertFrom-Json)
+
+                        if ($tasks.Count -eq 0) {
+                            throw "No deployment tasks found."
+                        }
+
+                        # OAuth
+                        $pair = "$env:CPI_CLIENT_ID`:$env:CPI_CLIENT_SECRET"
+                        $basic = [Convert]::ToBase64String(
+                            [Text.Encoding]::UTF8.GetBytes($pair)
+                        )
+
+                        $tokenResponse = Invoke-RestMethod `
+                            -Uri $env:CPI_QA_TOKEN_URL `
+                            -Method POST `
+                            -Headers @{ Authorization = "Basic $basic" } `
+                            -Body @{ grant_type = "client_credentials" } `
+                            -ContentType "application/x-www-form-urlencoded" `
+                            -TimeoutSec 60
+
+                        $token = $tokenResponse.access_token
+
+                        if ([string]::IsNullOrWhiteSpace($token)) {
+                            throw "QA OAuth authentication failed."
+                        }
+
+                        $headers = @{
+                            Authorization = "Bearer $token"
+                            Accept = "application/json"
+                        }
+
+                        foreach ($task in $tasks) {
+                            $id = [string]$task.Id
+                            $taskId = [string]$task.TaskId
+
+                            Write-Host ""
+                            Write-Host "======================================"
+                            Write-Host "Monitoring: $id"
+                            Write-Host "Task ID: $taskId"
+                            Write-Host "======================================"
+
+                            $taskUrl = "$api/BuildAndDeployStatus(TaskId='$taskId')"
+                            $deploymentStatus = ""
+
+                            # Poll deployment task for up to 10 minutes.
+                            for ($attempt = 1; $attempt -le 60; $attempt++) {
+                                $statusResponse = Invoke-RestMethod `
+                                    -Uri $taskUrl `
+                                    -Method GET `
+                                    -Headers $headers `
+                                    -TimeoutSec 60
+
+                                $statusData = if ($statusResponse.d) {
+                                    $statusResponse.d
+                                }
+                                else {
+                                    $statusResponse
+                                }
+
+                                $deploymentStatus = [string]$statusData.Status
+
+                                Write-Host "Attempt $attempt - $id deployment status: $deploymentStatus"
+
+                                if ($deploymentStatus -match '^(?i)SUCCESS$') {
+                                    break
+                                }
+
+                                if ($deploymentStatus -match '^(?i)FAIL$|^FAIL_ON_LICENSE_ERROR$') {
+                                    throw "Deployment failed for $id. Task status: $deploymentStatus"
+                                }
+
+                                if ($deploymentStatus -notmatch '^(?i)DEPLOYING$') {
+                                    throw "Unexpected deployment status for $id: '$deploymentStatus'. Inspect the API response."
+                                }
+
+                                Start-Sleep -Seconds 10
+                            }
+
+                            if ($deploymentStatus -notmatch '^(?i)SUCCESS$') {
+                                throw "Deployment did not complete within 10 minutes for $id. Last status: $deploymentStatus"
+                            }
+
+                            Write-Host "BUILD AND DEPLOY STATUS SUCCESS: $id"
+
+                            # Verify actual runtime status.
+                            $runtimeUrl = "$api/IntegrationRuntimeArtifacts('$id')"
+                            $runtimeStatus = ""
+
+                            for ($attempt = 1; $attempt -le 60; $attempt++) {
+                                $runtimeResponse = Invoke-RestMethod `
+                                    -Uri $runtimeUrl `
+                                    -Method GET `
+                                    -Headers $headers `
+                                    -TimeoutSec 60
+
+                                $runtimeData = if ($runtimeResponse.d) {
+                                    $runtimeResponse.d
+                                }
+                                else {
+                                    $runtimeResponse
+                                }
+
+                                $runtimeStatus = [string]$runtimeData.Status
+
+                                Write-Host "Attempt $attempt - $id runtime status: $runtimeStatus"
+
+                                if ($runtimeStatus -match '^(?i)STARTED$') {
+                                    break
+                                }
+
+                                if ($runtimeStatus -match '^(?i)ERROR$|^STOPPED$|^NOT_STARTED$') {
+                                    throw "Runtime did not start for $id. Runtime status: $runtimeStatus"
+                                }
+
+                                Start-Sleep -Seconds 10
+                            }
+
+                            if ($runtimeStatus -notmatch '^(?i)STARTED$') {
+                                throw "Runtime did not reach Started within 10 minutes for $id. Last status: $runtimeStatus"
+                            }
+
+                            Write-Host "RUNTIME STARTED SUCCESSFULLY: $id"
+                        }
+
+                        Write-Host ""
+                        Write-Host "======================================"
+                        Write-Host "ALL QA IFLOWS DEPLOYED AND STARTED"
+                        Write-Host "======================================"
+
+                        $token = $null
+                        $basic = $null
+                        $pair = $null
+                        $headers = $null
+                    '''
+                }
+            }
+        }
     }
 
     post {
         success {
-            echo 'GitHub to QA design-time transfer completed successfully.'
-            echo 'No runtime deployment was performed.'
+            echo 'GitHub to QA transfer completed successfully.'
+            echo 'QA externalized parameters injected and verified.'
+            echo 'QA iFlows validated, deployed and runtime status verified.'
         }
 
         failure {
