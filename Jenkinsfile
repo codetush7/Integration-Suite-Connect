@@ -1938,7 +1938,7 @@ pipeline {
                                     }
 
                                     if ($deploymentStatus -notmatch '^(?i)DEPLOYING$') {
-                                        throw "Unexpected deployment status for $id: '$deploymentStatus'. Inspect the API response."
+                                        throw "Unexpected deployment status for ${id}: '$deploymentStatus'. Inspect the API response."
                                     }
 
                                     Start-Sleep -Seconds 10
