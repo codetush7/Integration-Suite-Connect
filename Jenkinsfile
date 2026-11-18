@@ -65,47 +65,38 @@ pipeline {
                         error('No iFlows discovered from the checked-out GitHub repository.')
                     }
 
-                    // Requires the Jenkins Custom Checkbox Parameter plugin.
-                    // Options are generated from this build's GitHub checkout, not hardcoded.
-                    def checkboxJson = groovy.json.JsonOutput.toJson([
-                        CheckboxParameter: discovered.collect { id ->
-                            [key: id, value: id, checked: false]
-                        }
-                    ])
+                    // One native Jenkins checkbox per iFlow discovered in this GitHub checkout.
+                    // No plugin required: the list is generated from discovered-iflows.txt.
+                    def choices = []
+                    for (String id : discovered) {
+                        choices << booleanParam(
+                            name: id,
+                            defaultValue: false,
+                            description: ''
+                        )
+                    }
 
                     def selection = input(
-                        message: 'Select one or more iFlows discovered in this GitHub checkout.',
+                        message: "Select the iFlows to deploy (${discovered.size()} discovered from GitHub).",
                         ok: 'Continue with selected iFlows',
-                        parameters: [
-                            checkboxParameter(
-                                name: 'SELECTED_IFLOWS',
-                                format: 'JSON',
-                                pipelineSubmitContent: checkboxJson,
-                                displayNodePath: '//CheckboxParameter/key',
-                                valueNodePath: '//CheckboxParameter/value',
-                                checkedNodePath: '//CheckboxParameter/checked',
-                                description: 'Only checked iFlows will be processed.'
-                            )
-                        ]
+                        parameters: choices
                     )
 
-                    // The checkbox plugin returns selected values as a comma-separated string.
-                    def rawSelection = (selection instanceof Map) ?
-                        selection['SELECTED_IFLOWS'] : selection
-
-                    def selected = (rawSelection == null ? '' : rawSelection.toString())
-                        .split(',')
-                        .collect { it.trim() }
-                        .findAll { it }
-                        .unique()
+                    // With two or more checkboxes input() returns a Map of id -> Boolean.
+                    // With exactly one checkbox it returns the Boolean itself.
+                    def selected = []
+                    if (selection instanceof Map) {
+                        for (String id : discovered) {
+                            if (selection[id].toString() == 'true') {
+                                selected << id
+                            }
+                        }
+                    } else if (selection.toString() == 'true') {
+                        selected << discovered[0]
+                    }
 
                     if (!selected) {
                         error('No iFlows selected. Select at least one iFlow to continue.')
-                    }
-
-                    def invalid = selected.findAll { !discovered.contains(it) }
-                    if (invalid) {
-                        error("Selection contains iFlows not found in this GitHub checkout: ${invalid.join(', ')}")
                     }
 
                     writeFile(
