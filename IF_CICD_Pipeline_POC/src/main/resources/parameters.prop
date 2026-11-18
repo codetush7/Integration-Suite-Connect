@@ -1,0 +1,4 @@
+#Wed Nov 18 13:28:17 UTC 2026
+SAP_RECIEVER=DEV_S4H
+SAP_SENDER=DEV_Application
+url=/devCICD
