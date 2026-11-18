@@ -225,40 +225,7 @@ pipeline {
             }
         }
 
-        stage('5. Approve Deployment') {
-            steps {
-                script {
-                    def selected = readFile('selected-iflows.txt')
-                        .readLines().collect { it.trim() }.findAll { it }
-                    def failedLines = fileExists('failed-iflows.txt') ?
-                        readFile('failed-iflows.txt').readLines().findAll { it.trim() } : []
-                    def blockedIds = failedLines.collect { it.tokenize('|')[0] }.unique()
-                    def eligible = selected.findAll { !blockedIds.contains(it) }
-                    def blocked = selected.findAll { blockedIds.contains(it) }
-
-                    input(
-                        message: """
-        Confirm processing for SAP Integration Suite QA.
-
-        Selected iFlows: ${selected.size()}
-        Eligible to proceed: ${eligible.size()}
-        Blocked by mandatory QA JSON preflight: ${blocked.size()}
-
-        Eligible:
-        ${eligible.join('\n')}
-
-        Blocked:
-        ${blocked.join('\n')}
-
-        Continue? Any blocked iFlow will be skipped and the final build will fail if any selected iFlow failed.
-                        """,
-                        ok: 'Approve and Proceed'
-                    )
-                }
-            }
-        }
-
-        stage('6. Package iFlows') {
+        stage('5. Package iFlows') {
             steps {
                 powershell '''
                     $ErrorActionPreference = "Stop"
@@ -332,7 +299,7 @@ pipeline {
             }
         }
 
-        stage('7. Verify Artifacts') {
+        stage('6. Verify Artifacts') {
             steps {
                 powershell '''
                     $ErrorActionPreference = "Stop"
@@ -399,7 +366,7 @@ pipeline {
             }
         }
 
-        stage('8. Transfer iFlows to QA Design Time') {
+        stage('7. Transfer iFlows to QA Design Time') {
             steps {
                 withCredentials([
                     usernamePassword(
@@ -759,7 +726,7 @@ pipeline {
 
                                 # GitHub is the source of truth for the design-time artifact.
                                 # Do not copy parameters.prop or parameters.propdef from QA.
-                                # QA-specific values are injected separately in Stage 9.
+                                # QA-specific values are injected separately in Stage 8.
                                 $sourceParameters = Join-Path $stageFolder "src/main/resources/parameters.prop"
                                 $sourceParameterDefinitions = Join-Path $stageFolder "src/main/resources/parameters.propdef"
 
@@ -1075,7 +1042,7 @@ pipeline {
             }
         }
 
-        stage('9. Inject QA Externalized Parameters') {
+        stage('8. Inject QA Externalized Parameters') {
             steps {
                 withCredentials([
                     usernamePassword(
@@ -1306,7 +1273,7 @@ pipeline {
             }
         }
 
-        stage('10. Download and Verify QA Artifacts') {
+        stage('9. Download and Verify QA Artifacts') {
             steps {
                 withCredentials([
                     usernamePassword(
@@ -1495,7 +1462,7 @@ pipeline {
             }
         }
 
-        stage('11. Validate QA iFlows') {
+        stage('10. Validate QA iFlows') {
             steps {
                 withCredentials([
                     usernamePassword(
@@ -1629,7 +1596,7 @@ pipeline {
             }
         }
 
-        stage('12. Trigger QA Deployment') {
+        stage('11. Trigger QA Deployment') {
             steps {
                 withCredentials([
                     usernamePassword(
@@ -1816,7 +1783,7 @@ pipeline {
             }
         }
 
-        stage('13. Verify QA Runtime Deployment') {
+        stage('12. Verify QA Runtime Deployment') {
             steps {
                 withCredentials([
                     usernamePassword(
@@ -1938,7 +1905,7 @@ pipeline {
                                     }
 
                                     if ($deploymentStatus -notmatch '^(?i)DEPLOYING$') {
-                                        throw "Unexpected deployment status for ${id}: '$deploymentStatus'. Inspect the API response."
+                                        throw "Unexpected deployment status for $id: '$deploymentStatus'. Inspect the API response."
                                     }
 
                                     Start-Sleep -Seconds 10
@@ -2010,7 +1977,7 @@ pipeline {
             }
         }
 
-        stage('14. Deployment Summary') {
+        stage('13. Deployment Summary') {
             steps {
                 script {
                     def selected = readFile('selected-iflows.txt')
