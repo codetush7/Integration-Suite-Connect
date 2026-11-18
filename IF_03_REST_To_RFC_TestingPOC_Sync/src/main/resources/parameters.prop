@@ -1,0 +1,5 @@
+#Tue Nov 17 09:39:14 UTC 2026
+HTTP_Address=/IF_02_REST_To_RFC_TestingPOC_Sync
+RFCDestination=DEV_HANA_RFC
+SAP_Receiver=S4DEV
+SAP_Sender=Third Party
