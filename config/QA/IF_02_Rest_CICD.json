@@ -1,5 +1,5 @@
 {
-  "SAP_Reciever": "DEVS4H",
-  "SAP_SENDER": "DEV_Application",
-  "url": "/cicdDevDemo"
+  "SAP_Reciever": "QAS4H",
+  "SAP_SENDER": "QA_Application",
+  "url": "/cicdQADemo"
 }
