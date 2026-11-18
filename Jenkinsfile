@@ -80,7 +80,6 @@ pipeline {
                             checkboxParameter(
                                 name: 'SELECTED_IFLOWS',
                                 format: 'JSON',
-                                useInput: true,
                                 pipelineSubmitContent: checkboxJson,
                                 displayNodePath: '//CheckboxParameter/key',
                                 valueNodePath: '//CheckboxParameter/value',
@@ -1615,11 +1614,11 @@ pipeline {
                                     throw "Validation request did not return HTTP 202 for $id."
                                 }
 
-                                if ($result -match '(?i)Check\s+execution\s+result\s*:\s*Passed') {
+                                if ($result -match '(?i)Check\\s+execution\\s+result\\s*:\\s*Passed') {
                                     Write-Host "VALIDATION PASSED: $id"
                                 }
-                                elseif ($result -match '(?i)Check\s+execution\s+result\s*:\s*Failed' -or
-                                        $result -match '(?i)"severity"\s*:\s*"Error"') {
+                                elseif ($result -match '(?i)Check\\s+execution\\s+result\\s*:\\s*Failed' -or
+                                        $result -match '(?i)"severity"\\s*:\\s*"Error"') {
                                     throw "SAP validation failed for $id. Check the validation response."
                                 }
                                 else {
