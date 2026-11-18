@@ -54,49 +54,59 @@ pipeline {
         stage('3. Select iFlows for Deployment') {
             steps {
                 script {
-                    def discovered = readFile(
-                        'discovered-iflows.txt'
-                    ).readLines()
-                     .collect { it.trim() }
-                     .findAll { it }
+                    def discovered = readFile('discovered-iflows.txt')
+                        .readLines()
+                        .collect { it.trim() }
+                        .findAll { it }
+                        .unique()
+                        .sort()
 
                     if (!discovered) {
-                        error('No iFlows discovered.')
+                        error('No iFlows discovered from the checked-out GitHub repository.')
                     }
 
+                    // Requires the Jenkins Custom Checkbox Parameter plugin.
+                    // Options are generated from this build's GitHub checkout, not hardcoded.
+                    def checkboxJson = groovy.json.JsonOutput.toJson([
+                        CheckboxParameter: discovered.collect { id ->
+                            [key: id, value: id, checked: false]
+                        }
+                    ])
+
                     def selection = input(
-                        message: 'Enter the iFlow IDs to deploy.',
+                        message: 'Select one or more iFlows discovered in this GitHub checkout.',
+                        ok: 'Continue with selected iFlows',
                         parameters: [
-                            string(
+                            checkboxParameter(
                                 name: 'SELECTED_IFLOWS',
-                                defaultValue: discovered.join(','),
-                                description: 'Enter comma-separated iFlow IDs, or ALL.'
+                                format: 'JSON',
+                                useInput: true,
+                                pipelineSubmitContent: checkboxJson,
+                                displayNodePath: '//CheckboxParameter/key',
+                                valueNodePath: '//CheckboxParameter/value',
+                                checkedNodePath: '//CheckboxParameter/checked',
+                                description: 'Only checked iFlows will be processed.'
                             )
                         ]
                     )
 
-                    def requested = selection
+                    // The checkbox plugin returns selected values as a comma-separated string.
+                    def rawSelection = (selection instanceof Map) ?
+                        selection['SELECTED_IFLOWS'] : selection
+
+                    def selected = (rawSelection == null ? '' : rawSelection.toString())
                         .split(',')
                         .collect { it.trim() }
                         .findAll { it }
-
-                    if (requested.size() != requested.toSet().size()) {
-                        error('Duplicate iFlow IDs are not allowed.')
-                    }
-
-                    def selected = requested.contains('ALL') ?
-                        discovered : requested
-
-                    def invalid = selected.findAll {
-                        !discovered.contains(it)
-                    }
-
-                    if (invalid) {
-                        error("Invalid iFlow IDs: ${invalid.join(', ')}")
-                    }
+                        .unique()
 
                     if (!selected) {
-                        error('No iFlows selected.')
+                        error('No iFlows selected. Select at least one iFlow to continue.')
+                    }
+
+                    def invalid = selected.findAll { !discovered.contains(it) }
+                    if (invalid) {
+                        error("Selection contains iFlows not found in this GitHub checkout: ${invalid.join(', ')}")
                     }
 
                     writeFile(
@@ -105,10 +115,77 @@ pipeline {
                     )
 
                     env.SELECTED_IFLOW_COUNT = "${selected.size()}"
-
-                    echo "Selected ${selected.size()} iFlows:"
+                    echo "Selected ${selected.size()} of ${discovered.size()} discovered iFlows:"
                     selected.each { echo " - ${it}" }
+                    echo 'All subsequent stages must use selected-iflows.txt as their allow-list.'
                 }
+            }
+        }
+
+        stage('3A. Preflight QA Parameter Configuration') {
+            steps {
+                powershell '''
+                    $ErrorActionPreference = "Stop"
+
+                    $selectedFile = Join-Path $env:WORKSPACE "selected-iflows.txt"
+                    $configRoot = Join-Path $env:WORKSPACE "config/QA"
+                    $failedFile = Join-Path $env:WORKSPACE "failed-iflows.txt"
+
+                    if (!(Test-Path -LiteralPath $selectedFile -PathType Leaf)) {
+                        throw "Selected iFlow list is missing. Refusing to process the repository contents."
+                    }
+
+                    # Reset failures exactly once, before any per-iFlow processing.
+                    [System.IO.File]::WriteAllText($failedFile, "")
+
+                    $selected = @(Get-Content -LiteralPath $selectedFile |
+                        ForEach-Object { $_.Trim() } |
+                        Where-Object { $_ })
+
+                    if ($selected.Count -eq 0) {
+                        throw "The selected iFlow list is empty. Refusing to process all discovered iFlows."
+                    }
+
+                    function Add-FailedIflow {
+                        param([string]$IflowId, [string]$Stage, [string]$Message)
+                        $clean = $Message.Replace("`r", " ").Replace("`n", " ").Replace('|', '/').Trim()
+                        Add-Content -LiteralPath $failedFile -Value "$IflowId|$Stage|$clean"
+                    }
+
+                    Write-Host "Preflight: validating mandatory QA JSON files for selected iFlows only."
+
+                    foreach ($id in $selected) {
+                        try {
+                            $configFile = Join-Path $configRoot "$id.json"
+
+                            if (!(Test-Path -LiteralPath $configFile -PathType Leaf)) {
+                                throw "Mandatory QA configuration file is missing: config/QA/$id.json"
+                            }
+
+                            $config = Get-Content -LiteralPath $configFile -Raw -ErrorAction Stop |
+                                ConvertFrom-Json -ErrorAction Stop
+
+                            if ($null -eq $config -or $config -is [System.Array] -or
+                                $config -is [string] -or $config -is [ValueType]) {
+                                throw "QA configuration must be a non-empty JSON object for '$id'."
+                            }
+
+                            $properties = @($config.PSObject.Properties)
+                            if ($properties.Count -eq 0) {
+                                throw "QA configuration JSON contains no parameter values for '$id'."
+                            }
+
+                            Write-Host "PREFLIGHT PASSED: $id ($($properties.Count) parameter(s))"
+                        }
+                        catch {
+                            $message = [string]$_.Exception.Message
+                            Write-Host "##### FAILED [QA configuration preflight]: $id - $message"
+                            Add-FailedIflow -IflowId $id -Stage "QA configuration preflight" -Message $message
+                        }
+                    }
+
+                    Write-Host "Preflight completed. iFlows with missing/invalid JSON are blocked from packaging, transfer, injection and deployment."
+                '''
             }
         }
 
@@ -124,15 +201,27 @@ pipeline {
                     ).readLines().collect { it.trim() }.findAll { it }
 
                     def notSelected = discovered.findAll { !selected.contains(it) }
+                    def failedLines = fileExists('failed-iflows.txt') ?
+                        readFile('failed-iflows.txt').readLines().findAll { it.trim() } : []
+                    def blockedIds = failedLines.collect { it.tokenize('|')[0] }.unique()
+                    def eligible = selected.findAll { !blockedIds.contains(it) }
+                    def blocked = selected.findAll { blockedIds.contains(it) }
 
                     echo '========== DEPLOYMENT PREVIEW =========='
                     echo "Target: QA"
                     echo "Package: ${env.CPI_PACKAGE_ID}"
                     echo "Discovered iFlows: ${discovered.size()}"
                     echo "Selected iFlows: ${selected.size()}"
+                    echo "Eligible after mandatory QA JSON preflight: ${eligible.size()}"
+                    echo "Blocked by preflight: ${blocked.size()}"
 
-                    echo 'Selected for deployment:'
-                    selected.each { echo "  * ${it}" }
+                    echo 'Eligible for processing:'
+                    if (eligible) { eligible.each { echo "  * ${it}" } }
+                    else { echo '  (none)' }
+
+                    echo 'Blocked (will not be transferred or deployed):'
+                    if (blocked) { blocked.each { echo "  * ${it}" } }
+                    else { echo '  (none)' }
 
                     echo 'Not selected:'
                     if (notSelected) {
@@ -149,19 +238,29 @@ pipeline {
         stage('5. Approve Deployment') {
             steps {
                 script {
-                    def selected = readFile(
-                        'selected-iflows.txt'
-                    ).readLines().findAll { it.trim() }
+                    def selected = readFile('selected-iflows.txt')
+                        .readLines().collect { it.trim() }.findAll { it }
+                    def failedLines = fileExists('failed-iflows.txt') ?
+                        readFile('failed-iflows.txt').readLines().findAll { it.trim() } : []
+                    def blockedIds = failedLines.collect { it.tokenize('|')[0] }.unique()
+                    def eligible = selected.findAll { !blockedIds.contains(it) }
+                    def blocked = selected.findAll { blockedIds.contains(it) }
 
                     input(
                         message: """
-        Confirm deployment to SAP Integration Suite QA.
+        Confirm processing for SAP Integration Suite QA.
 
         Selected iFlows: ${selected.size()}
+        Eligible to proceed: ${eligible.size()}
+        Blocked by mandatory QA JSON preflight: ${blocked.size()}
 
-        ${selected.join('\n')}
+        Eligible:
+        ${eligible.join('\n')}
 
-        Proceed with deployment?
+        Blocked:
+        ${blocked.join('\n')}
+
+        Continue? Any blocked iFlow will be skipped and the final build will fail if any selected iFlow failed.
                         """,
                         ok: 'Approve and Proceed'
                     )
@@ -201,9 +300,10 @@ pipeline {
                         Add-Content -LiteralPath $failedFile -Value "$IflowId|$Stage|$clean"
                     }
 
-                    # Start every run with a clean failure list.
-                    if (Test-Path -LiteralPath $failedFile) {
-                        Remove-Item -LiteralPath $failedFile -Force
+                    # failed-iflows.txt is initialized by the preflight stage.
+                    # Do not clear it here: mandatory configuration failures must persist.
+                    if (!(Test-Path -LiteralPath $failedFile -PathType Leaf)) {
+                        throw "Failure ledger is missing. Refusing to continue without preflight results."
                     }
                     $output = "$env:WORKSPACE/artifacts"
 
@@ -1515,11 +1615,11 @@ pipeline {
                                     throw "Validation request did not return HTTP 202 for $id."
                                 }
 
-                                if ($result -match '(?i)Check\\s+execution\\s+result\\s*:\\s*Passed') {
+                                if ($result -match '(?i)Check\s+execution\s+result\s*:\s*Passed') {
                                     Write-Host "VALIDATION PASSED: $id"
                                 }
-                                elseif ($result -match '(?i)Check\\s+execution\\s+result\\s*:\\s*Failed' -or
-                                        $result -match '(?i)"severity"\\s*:\\s*"Error"') {
+                                elseif ($result -match '(?i)Check\s+execution\s+result\s*:\s*Failed' -or
+                                        $result -match '(?i)"severity"\s*:\s*"Error"') {
                                     throw "SAP validation failed for $id. Check the validation response."
                                 }
                                 else {
