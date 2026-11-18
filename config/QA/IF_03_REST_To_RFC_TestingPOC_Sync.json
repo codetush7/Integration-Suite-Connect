@@ -1,0 +1,11 @@
+{
+
+  "HTTP_Address": "/IF_01_REST_To_RFC_TestingPOC_Sync",
+
+  "RFCDestination": "QA_S4_RFC",
+
+  "SAP_Receiver": "S4QA",
+
+  "SAP_Sender": "QA Third Party"
+}
+ 
