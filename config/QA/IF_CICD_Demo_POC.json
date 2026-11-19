@@ -1,0 +1,5 @@
+{
+  "SAP_RECIEVER": "QA_S4H",
+  "SAP_SENDER": "QA_Application",
+  "url": "/qaCICD"
+}
